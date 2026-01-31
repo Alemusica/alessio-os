@@ -374,7 +374,7 @@ function dashboardHTML(): string {
 <title>ALESSIO-OS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=DM+Mono:wght@300;400&family=Inter:wght@300;400;500;700&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #FAF8F5;
@@ -399,6 +399,13 @@ function dashboardHTML(): string {
     --mono: 'DM Mono', 'SF Mono', 'Menlo', monospace;
     --phi: 1.618;
     --s1: 8px; --s2: 13px; --s3: 21px; --s4: 34px; --s5: 55px; --s6: 89px; --s7: 144px;
+    --fs-base: 15px;
+    --fs-2xs: 9px;
+    --fs-xs: 10px;
+    --fs-sm: 11.5px;
+    --fs-body: 14px;
+    --fs-lg: 18px;
+    --fs-xl: 22px;
     --radius: 0; --radius-sm: 0;
   }
 
@@ -408,7 +415,7 @@ function dashboardHTML(): string {
     font-family: var(--font);
     background: var(--bg);
     color: var(--text);
-    font-size: 15px;
+    font-size: var(--fs-base);
     font-weight: 400;
     line-height: calc(1em * var(--phi));
     height: 100vh;
@@ -428,13 +435,13 @@ function dashboardHTML(): string {
     flex-shrink: 0;
   }
   h1 {
-    font-size: 14px;
+    font-size: var(--fs-body);
     font-weight: 500;
     letter-spacing: 0.14em;
     text-transform: uppercase;
   }
   .subtitle {
-    font-size: 12px;
+    font-size: var(--fs-sm);
     font-weight: 300;
     color: var(--dim);
     letter-spacing: 0.04em;
@@ -444,7 +451,7 @@ function dashboardHTML(): string {
     display: flex;
     align-items: center;
     gap: var(--s2);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--green);
   }
   .health-indicator .dot {
@@ -482,7 +489,7 @@ function dashboardHTML(): string {
     padding: var(--s4) var(--s4) var(--s2);
   }
   .nav-label {
-    font-size: 9.5px;
+    font-size: var(--fs-2xs);
     font-weight: 500;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -500,7 +507,7 @@ function dashboardHTML(): string {
     border: none;
     border-radius: var(--radius-sm);
     font-family: var(--font);
-    font-size: 12.5px;
+    font-size: var(--fs-sm);
     color: var(--text-secondary);
     text-align: left;
     cursor: pointer;
@@ -519,7 +526,7 @@ function dashboardHTML(): string {
   .nav-item .nav-count {
     margin-left: auto;
     font-family: var(--mono);
-    font-size: 9px;
+    font-size: var(--fs-2xs);
     color: var(--dim);
     flex-shrink: 0;
   }
@@ -543,7 +550,7 @@ function dashboardHTML(): string {
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--dim);
     flex-shrink: 0;
     display: flex;
@@ -588,18 +595,18 @@ function dashboardHTML(): string {
   }
   .session-card .sc-id {
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: var(--fs-xs);
     color: var(--accent);
     margin-bottom: var(--s1);
   }
   .session-card .sc-meta {
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--dim);
     display: flex;
     gap: var(--s4);
   }
   .session-card .sc-preview {
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     color: var(--text-secondary);
     margin-top: var(--s2);
     display: -webkit-box;
@@ -641,7 +648,7 @@ function dashboardHTML(): string {
   }
   .msg-role {
     font-family: var(--font);
-    font-size: 10px;
+    font-size: var(--fs-xs);
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -650,12 +657,12 @@ function dashboardHTML(): string {
   .msg-assistant .msg-role { color: var(--blue); }
   .msg-time {
     font-family: var(--mono);
-    font-size: 9px;
+    font-size: var(--fs-2xs);
     color: var(--dim);
     opacity: 0.5;
   }
   .msg-body {
-    font-size: 14px;
+    font-size: var(--fs-body);
     line-height: calc(1em * var(--phi));
     color: var(--text);
     white-space: pre-wrap;
@@ -685,7 +692,7 @@ function dashboardHTML(): string {
   }
   .result-card .rc-title {
     font-family: var(--font);
-    font-size: 10px;
+    font-size: var(--fs-xs);
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -694,7 +701,7 @@ function dashboardHTML(): string {
   }
   .result-card.error .rc-title { color: var(--rose); }
   .result-card .rc-body {
-    font-size: 13px;
+    font-size: var(--fs-body);
     line-height: calc(1em * var(--phi));
     white-space: pre-wrap;
     word-wrap: break-word;
@@ -703,7 +710,7 @@ function dashboardHTML(): string {
   }
   .result-card .rc-meta {
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: var(--fs-2xs);
     color: var(--dim);
     margin-top: 4px;
   }
@@ -725,7 +732,7 @@ function dashboardHTML(): string {
   }
   .drop-zone.drag-over .dz-prompt { color: var(--green); }
   .dz-prompt {
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     color: var(--dim);
     flex: 1;
   }
@@ -734,7 +741,7 @@ function dashboardHTML(): string {
     padding: var(--s2) var(--s4);
     border-radius: var(--radius-sm);
     font-family: var(--font);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     font-weight: 500;
     cursor: pointer;
     border: 1px solid;
@@ -845,7 +852,7 @@ function dashboardHTML(): string {
   }
   .tp-title {
     font-family: var(--font);
-    font-size: 10px;
+    font-size: var(--fs-xs);
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -854,7 +861,7 @@ function dashboardHTML(): string {
   }
   .tp-badge {
     font-family: var(--mono);
-    font-size: 9px;
+    font-size: var(--fs-2xs);
     color: var(--green);
     background: none;
     border: 1px solid var(--green);
@@ -865,7 +872,7 @@ function dashboardHTML(): string {
   .tp-toggle {
     background: none;
     border: none;
-    font-size: 14px;
+    font-size: var(--fs-body);
     color: var(--dim);
     cursor: pointer;
     width: 21px;
@@ -876,7 +883,7 @@ function dashboardHTML(): string {
     overflow-y: auto;
     padding: var(--s1) var(--s3);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     font-weight: 300;
     line-height: 1.8;
     color: var(--text-secondary);
@@ -890,7 +897,7 @@ function dashboardHTML(): string {
     font-weight: 400;
     opacity: 0.85;
   }
-  .log-line .ts { color: var(--dim); opacity: 0.4; font-size: 10px; }
+  .log-line .ts { color: var(--dim); opacity: 0.4; font-size: var(--fs-xs); }
   .log-line .event { color: var(--green); }
   .log-line .agent-name { color: var(--accent); }
   .log-line .error { color: var(--rose); }
@@ -913,11 +920,11 @@ function dashboardHTML(): string {
   .status-blocked { background: var(--rose); }
   .status-done { background: var(--blue); }
   .agent .role {
-    font-family: var(--mono); font-size: 10px; color: var(--accent);
+    font-family: var(--mono); font-size: var(--fs-xs); color: var(--accent);
     letter-spacing: 0.06em; text-transform: uppercase; min-width: 55px;
   }
   .agent .task {
-    font-size: 12.5px; color: var(--text-secondary);
+    font-size: var(--fs-sm); color: var(--text-secondary);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
   }
 
@@ -929,7 +936,7 @@ function dashboardHTML(): string {
   }
   .task-item:hover { background: var(--bg); }
   .badge {
-    font-family: var(--mono); font-size: 9.5px; padding: 2px 8px;
+    font-family: var(--mono); font-size: var(--fs-2xs); padding: 2px 8px;
     border-radius: 0; text-transform: lowercase; letter-spacing: 0.04em; flex-shrink: 0;
   }
   .badge-pending { background: var(--amber-bg); color: var(--amber); }
@@ -937,10 +944,10 @@ function dashboardHTML(): string {
   .badge-done { background: var(--blue-bg); color: var(--blue); }
   .badge-failed { background: var(--rose-bg); color: var(--rose); }
   .task-item .desc {
-    font-size: 12.5px; color: var(--text-secondary); flex: 1;
+    font-size: var(--fs-sm); color: var(--text-secondary); flex: 1;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .task-item .prio { font-family: var(--mono); font-size: 10px; color: var(--dim); opacity: 0.6; }
+  .task-item .prio { font-family: var(--mono); font-size: var(--fs-xs); color: var(--dim); opacity: 0.6; }
 
   /* ── KB VIEW ── */
   .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s3); }
@@ -951,16 +958,16 @@ function dashboardHTML(): string {
   }
   .stat:hover { border-color: var(--border); }
   .stat .num {
-    font-family: var(--mono); font-size: 22px; font-weight: 300;
+    font-family: var(--mono); font-size: var(--fs-xl); font-weight: 300;
     color: var(--text); letter-spacing: -0.02em;
   }
   .stat .label {
-    font-size: 9.5px; font-weight: 500; color: var(--dim);
+    font-size: var(--fs-2xs); font-weight: 500; color: var(--dim);
     text-transform: uppercase; letter-spacing: 0.1em; margin-top: var(--s1);
   }
   .file-link {
     display: inline-block; color: var(--accent); text-decoration: none;
-    font-family: var(--mono); font-size: 11px; padding: 3px 10px;
+    font-family: var(--mono); font-size: var(--fs-sm); padding: 3px 10px;
     border-radius: 0; margin: 2px 3px 2px 0; background: var(--accent-bg);
     border: 1px solid transparent; transition: all 0.2s ease;
   }
@@ -968,15 +975,15 @@ function dashboardHTML(): string {
 
   .empty {
     color: var(--dim); font-weight: 300; font-style: italic;
-    padding: var(--s5); text-align: center; font-size: 12px;
+    padding: var(--s5); text-align: center; font-size: var(--fs-sm);
   }
   .section-title {
-    font-size: 10.5px; font-weight: 500; letter-spacing: 0.12em;
+    font-size: var(--fs-xs); font-weight: 500; letter-spacing: 0.12em;
     text-transform: uppercase; color: var(--dim); margin-bottom: var(--s4);
     display: flex; justify-content: space-between; align-items: center;
   }
   .section-title .count {
-    font-family: var(--mono); font-size: 10px; color: var(--accent);
+    font-family: var(--mono); font-size: var(--fs-xs); color: var(--accent);
     background: var(--accent-bg); padding: 2px 8px; border-radius: 0;
   }
   .section-gap { margin-top: var(--s5); }
@@ -984,27 +991,28 @@ function dashboardHTML(): string {
   /* ── TYPOGRAPHY MENU ── */
   .typo-gear {
     background: none; border: none; cursor: pointer; color: var(--dim);
-    font-size: 14px; padding: 0 4px; transition: color 0.15s; line-height: 1;
+    font-size: var(--fs-body); padding: 0 4px; transition: color 0.15s; line-height: 1;
   }
   .typo-gear:hover { color: var(--accent); }
   .typo-popover {
     display: none; position: absolute; top: 100%; right: 0; z-index: 100;
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: var(--s4); min-width: 200px; box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    padding: var(--s4); min-width: 240px; max-height: 80vh; overflow-y: auto;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
   }
   .typo-popover.open { display: block; }
   .typo-popover label {
-    display: block; font-size: 10px; font-weight: 500; letter-spacing: 0.08em;
+    display: block; font-size: var(--fs-xs); font-weight: 500; letter-spacing: 0.08em;
     text-transform: uppercase; color: var(--dim); margin-bottom: var(--s1); margin-top: var(--s3);
   }
   .typo-popover label:first-child { margin-top: 0; }
   .typo-popover input[type="range"] { width: 100%; accent-color: var(--accent); }
   .typo-popover select {
     width: 100%; padding: var(--s1) var(--s2); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); font-family: var(--font); font-size: 12px;
+    border-radius: var(--radius-sm); font-family: var(--font); font-size: var(--fs-sm);
     background: var(--bg); color: var(--text);
   }
-  .typo-size-display { font-family: var(--mono); font-size: 11px; color: var(--accent); float: right; }
+  .typo-size-display { font-family: var(--mono); font-size: var(--fs-sm); color: var(--accent); float: right; }
 
   /* ── SEARCH BOX ── */
   .bc-search {
@@ -1012,7 +1020,7 @@ function dashboardHTML(): string {
   }
   .bc-search input {
     width: 180px; padding: var(--s1) var(--s3); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); font-family: var(--font); font-size: 11.5px;
+    border-radius: var(--radius-sm); font-family: var(--font); font-size: var(--fs-sm);
     background: var(--bg); color: var(--text); transition: all 0.2s;
   }
   .bc-search input:focus { outline: none; border-color: var(--accent); width: 260px; background: var(--surface); }
@@ -1024,7 +1032,7 @@ function dashboardHTML(): string {
   }
   .cmd-input {
     flex: 1; resize: none; padding: var(--s2) var(--s3); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); font-family: var(--font); font-size: 12.5px;
+    border-radius: var(--radius-sm); font-family: var(--font); font-size: var(--fs-sm);
     background: var(--bg); color: var(--text); min-height: 34px; max-height: 80px;
     line-height: 1.5; transition: border-color 0.2s;
   }
@@ -1033,7 +1041,7 @@ function dashboardHTML(): string {
   .btn-send {
     padding: var(--s2) var(--s3); background: var(--accent); color: #fff;
     border: none; border-radius: var(--radius-sm); font-family: var(--font);
-    font-size: 11px; font-weight: 500; cursor: pointer; white-space: nowrap;
+    font-size: var(--fs-sm); font-weight: 500; cursor: pointer; white-space: nowrap;
     transition: background 0.15s; height: 34px;
   }
   .btn-send:hover { background: var(--accent-light); }
@@ -1049,26 +1057,26 @@ function dashboardHTML(): string {
     display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s1);
   }
   .tl-project {
-    font-family: var(--mono); font-size: 9.5px; padding: 1px 8px;
+    font-family: var(--mono); font-size: var(--fs-2xs); padding: 1px 8px;
     border-radius: 0; font-weight: 500; letter-spacing: 0.04em;
   }
   .tl-role {
-    font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em;
+    font-family: var(--mono); font-size: var(--fs-2xs); letter-spacing: 0.08em;
     text-transform: uppercase; color: var(--dim);
   }
   .tl-time {
-    font-family: var(--mono); font-size: 9px; color: var(--dim);
+    font-family: var(--mono); font-size: var(--fs-2xs); color: var(--dim);
     opacity: 0.5; margin-left: auto;
   }
   .tl-body {
-    font-size: 13px; line-height: calc(1em * var(--phi)); color: var(--text-secondary);
+    font-size: var(--fs-body); line-height: calc(1em * var(--phi)); color: var(--text-secondary);
     white-space: pre-wrap; word-wrap: break-word;
     display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
   }
   .tl-load-more {
     display: block; margin: var(--s4) auto; padding: var(--s2) var(--s5);
     background: none; border: 1px solid var(--border); border-radius: var(--radius-sm);
-    font-family: var(--font); font-size: 12px; color: var(--text-secondary);
+    font-family: var(--font); font-size: var(--fs-sm); color: var(--text-secondary);
     cursor: pointer; transition: all 0.15s;
   }
   .tl-load-more:hover { background: var(--accent-bg); border-color: var(--accent-light); }
@@ -1083,28 +1091,28 @@ function dashboardHTML(): string {
   }
   .mcp-card:hover { border-color: var(--accent-light); }
   .mcp-name {
-    font-family: var(--mono); font-size: 14px; font-weight: 500;
+    font-family: var(--mono); font-size: var(--fs-body); font-weight: 500;
     color: var(--text); margin-bottom: var(--s2);
     display: flex; align-items: center; gap: var(--s3);
   }
   .mcp-badge {
-    font-size: 9px; padding: 2px 8px; border-radius: 0;
+    font-size: var(--fs-2xs); padding: 2px 8px; border-radius: 0;
     background: none; color: var(--green); font-family: var(--mono); border: 1px solid var(--green);
   }
   .mcp-cmd {
-    font-family: var(--mono); font-size: 11px; color: var(--text-secondary);
+    font-family: var(--mono); font-size: var(--fs-sm); color: var(--text-secondary);
     background: var(--surface); padding: var(--s2) var(--s3);
     border-radius: var(--radius-sm); margin: var(--s2) 0; word-break: break-all;
   }
   .mcp-section-label {
-    font-size: 9.5px; font-weight: 500; letter-spacing: 0.08em;
+    font-size: var(--fs-2xs); font-weight: 500; letter-spacing: 0.08em;
     text-transform: uppercase; color: var(--dim); margin-top: var(--s3); margin-bottom: var(--s1);
   }
   .mcp-pills {
     display: flex; flex-wrap: wrap; gap: var(--s1);
   }
   .mcp-pill {
-    font-family: var(--mono); font-size: 10px; padding: 2px 8px;
+    font-family: var(--mono); font-size: var(--fs-xs); padding: 2px 8px;
     background: var(--accent-bg); color: var(--accent); border-radius: 0;
   }
 
@@ -1125,7 +1133,7 @@ function dashboardHTML(): string {
     padding: var(--s2) var(--s3);
     margin: var(--s1) 0;
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     font-weight: 300;
     overflow-x: auto;
     white-space: pre;
@@ -1143,7 +1151,7 @@ function dashboardHTML(): string {
     color: var(--dim);
     opacity: 0.4;
     user-select: none;
-    font-size: 10px;
+    font-size: var(--fs-xs);
     border-right: 1px solid var(--border);
   }
   /* Diff line highlighting */
@@ -1167,7 +1175,7 @@ function dashboardHTML(): string {
     border-bottom: 1px solid var(--border);
   }
   .md-h1 {
-    font-size: 18px;
+    font-size: var(--fs-lg);
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -1176,14 +1184,14 @@ function dashboardHTML(): string {
     padding-bottom: 4px;
   }
   .md-h2 {
-    font-size: 14px;
+    font-size: var(--fs-body);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     margin: var(--s3) 0 var(--s1);
   }
   .md-h3 {
-    font-size: 13px;
+    font-size: var(--fs-body);
     font-weight: 400;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -1191,21 +1199,21 @@ function dashboardHTML(): string {
     color: var(--text-secondary);
   }
   .md-li { padding-left: var(--s3); position: relative; }
-  .md-li::before { content: '\\2014'; position: absolute; left: 0; color: var(--dim); font-size: 12px; }
+  .md-li::before { content: '\\2014'; position: absolute; left: 0; color: var(--dim); font-size: var(--fs-sm); }
   .md-hr { border: none; border-top: 1px solid var(--border); margin: var(--s2) 0; }
 
   /* ── DEBUG PANEL ── */
   .debug-panel {
     position: fixed; bottom: 0; right: 0; width: 360px; max-height: 50vh;
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius) 0 0 0;
-    z-index: 200; display: none; flex-direction: column; font-size: 11px;
+    z-index: 200; display: none; flex-direction: column; font-size: var(--fs-sm);
     box-shadow: -2px -2px 12px rgba(0,0,0,0.06);
   }
   .debug-panel.open { display: flex; }
   .debug-header {
     padding: var(--s2) var(--s3); background: var(--bg); border-bottom: 1px solid var(--border);
     display: flex; align-items: center; gap: var(--s2); cursor: pointer;
-    font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; font-size: 9px;
+    font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; font-size: var(--fs-2xs);
     color: var(--dim);
   }
   .debug-header .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
@@ -1214,12 +1222,12 @@ function dashboardHTML(): string {
   }
   .debug-entry {
     padding: var(--s1) 0; border-bottom: 1px solid var(--border);
-    font-family: var(--mono); font-size: 10px; line-height: 1.5;
+    font-family: var(--mono); font-size: var(--fs-xs); line-height: 1.5;
   }
   .debug-entry .de-time { color: var(--dim); margin-right: var(--s2); }
   .debug-entry .de-type {
     display: inline-block; padding: 0 4px; border-radius: 3px;
-    font-size: 9px; font-weight: 500; margin-right: var(--s1);
+    font-size: var(--fs-2xs); font-weight: 500; margin-right: var(--s1);
   }
   .de-route { background: var(--blue-bg); color: var(--blue); }
   .de-context { background: var(--green-bg); color: var(--green); }
@@ -1230,10 +1238,50 @@ function dashboardHTML(): string {
     position: fixed; bottom: var(--s3); right: var(--s3); z-index: 201;
     width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border);
     background: var(--surface); cursor: pointer; display: flex; align-items: center;
-    justify-content: center; font-size: 14px; color: var(--dim); transition: all 0.15s;
+    justify-content: center; font-size: var(--fs-body); color: var(--dim); transition: all 0.15s;
     box-shadow: 0 2px 8px rgba(0,0,0,0.05);
   }
   .debug-toggle:hover { color: var(--accent); border-color: var(--accent-light); }
+
+  /* ── PTI PROBE OVERLAY ── */
+  .pti-probe * {
+    outline: 1px dashed rgba(139, 115, 85, 0.25) !important;
+  }
+  .pti-probe [style*="--"] {
+    outline-color: rgba(139, 115, 85, 0.5) !important;
+  }
+  .pti-probe .sidebar::after,
+  .pti-probe .main::after,
+  .pti-probe header::after,
+  .pti-probe .terminal-panel::after,
+  .pti-probe .msg::after,
+  .pti-probe .breadcrumb::after,
+  .pti-probe .drop-zone::after {
+    content: attr(data-probe);
+    position: absolute;
+    top: 2px; right: 2px;
+    font-family: var(--mono);
+    font-size: 8px;
+    color: var(--accent);
+    background: var(--surface);
+    padding: 1px 4px;
+    border: 1px solid var(--accent);
+    pointer-events: none;
+    z-index: 300;
+    opacity: 0.8;
+    white-space: nowrap;
+  }
+  .pti-probe-bar {
+    display: none;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--surface); border-top: 2px solid var(--accent);
+    padding: 4px 12px; z-index: 400;
+    font-family: var(--mono); font-size: 9px; color: var(--accent);
+    overflow-x: auto; white-space: nowrap;
+  }
+  .pti-probe .pti-probe-bar { display: flex; gap: 16px; }
+  .pti-probe-bar span { opacity: 0.6; }
+  .pti-probe-bar strong { font-weight: 500; color: var(--text); }
 
   /* ── NIGHT VIEW ── */
   .night {
@@ -1269,7 +1317,7 @@ function dashboardHTML(): string {
   /* Night mode toggle (inside typo popover) */
   .night-toggle {
     width: 100%; padding: var(--s2) var(--s3); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); font-family: var(--font); font-size: 12px;
+    border-radius: var(--radius-sm); font-family: var(--font); font-size: var(--fs-sm);
     background: var(--bg); color: var(--text); cursor: pointer;
     transition: all 0.15s; text-align: left; display: flex; align-items: center; gap: var(--s2);
   }
@@ -1284,25 +1332,55 @@ function dashboardHTML(): string {
   <h1>Alessio-OS</h1>
   <span class="subtitle">PTI Multi-Agent Hub</span>
   <div style="position:relative;margin-left:auto;display:flex;align-items:center;gap:var(--s3)">
-    <button class="typo-gear" onclick="toggleTypoMenu()" title="Typography">&#9881;</button>
+    <button class="typo-gear" onclick="toggleTypoMenu()" title="Design Tokens">&#9881;</button>
     <div class="typo-popover" id="typo-popover">
-      <label>Font size <span class="typo-size-display" id="typo-size-val">15px</span></label>
-      <input type="range" min="10" max="20" step="0.5" value="15" id="typo-size" oninput="applyTypo()">
-      <label>Font family</label>
-      <select id="typo-font" onchange="applyTypo()">
+      <label>Font <span class="typo-size-display" id="typo-font-val"></span></label>
+      <select id="typo-font" onchange="applyTokens()">
+        <option value="'Helvetica Neue', Helvetica, Arial, sans-serif" selected>Helvetica Neue</option>
         <option value="'DM Sans', 'Helvetica Neue', -apple-system, sans-serif">DM Sans</option>
-        <option value="'Helvetica Neue', Helvetica, -apple-system, sans-serif">Helvetica Neue</option>
+        <option value="'Inter', -apple-system, sans-serif">Inter</option>
         <option value="-apple-system, BlinkMacSystemFont, sans-serif">System</option>
       </select>
+      <label>Mono</label>
+      <select id="typo-mono" onchange="applyTokens()">
+        <option value="'DM Mono', 'SF Mono', 'Menlo', monospace" selected>DM Mono</option>
+        <option value="'SF Mono', 'Menlo', monospace">SF Mono</option>
+        <option value="'JetBrains Mono', 'Menlo', monospace">JetBrains Mono</option>
+      </select>
+      <label>Base size <span class="typo-size-display" id="typo-size-val">15px</span></label>
+      <input type="range" min="11" max="20" step="0.5" value="15" id="typo-size" oninput="applyTokens()">
       <label>Line height</label>
-      <select id="typo-lh" onchange="applyTypo()">
-        <option value="1.4">1.4 (compact)</option>
-        <option value="1.618" selected>&#966; 1.618 (golden)</option>
-        <option value="1.8">1.8 (spacious)</option>
+      <select id="typo-lh" onchange="applyTokens()">
+        <option value="1.4">1.4 — compatto</option>
+        <option value="1.618" selected>&#966; 1.618 — golden</option>
+        <option value="1.8">1.8 — arioso</option>
+      </select>
+      <label>Weight</label>
+      <select id="typo-weight" onchange="applyTokens()">
+        <option value="300">300 — light</option>
+        <option value="400" selected>400 — regular</option>
+        <option value="500">500 — medium</option>
+      </select>
+      <label>Letter-spacing</label>
+      <select id="typo-tracking" onchange="applyTokens()">
+        <option value="-0.02em">stretto</option>
+        <option value="-0.01em" selected>standard</option>
+        <option value="0em">neutro</option>
+        <option value="0.02em">aperto</option>
+      </select>
+      <label>Spacing scale</label>
+      <select id="typo-spacing" onchange="applyTokens()">
+        <option value="phi" selected>&#966; PHI (8 13 21 34 55 89 144)</option>
+        <option value="compact">Compact (4 8 12 16 24 32 48)</option>
+        <option value="relaxed">Relaxed (8 16 24 32 48 64 96)</option>
       </select>
       <label>Theme</label>
       <button class="night-toggle" id="night-btn" onclick="toggleNight()">
         <span id="night-icon">&#9790;</span> Night view
+      </button>
+      <label>Debug</label>
+      <button class="night-toggle" id="probe-btn" onclick="toggleProbe()">
+        PTI Probe
       </button>
     </div>
     <div class="health-indicator" id="health">
@@ -2074,6 +2152,55 @@ function toggleMic() {
   speechRec.start();
 }
 
+// ── PTI PROBE ──
+function toggleProbe() {
+  var html = document.documentElement;
+  html.classList.toggle('pti-probe');
+  var on = html.classList.contains('pti-probe');
+
+  if (on) {
+    // Set data-probe labels on key areas
+    var areas = {
+      'header': 'header — --fs-body, --s4, --s5',
+      '.sidebar': 'sidebar — --fs-sm, --fs-2xs, --s4',
+      '.main': 'main — --fs-body',
+      '.terminal-panel': 'terminal — --fs-sm, --mono',
+      '.breadcrumb': 'breadcrumb — --fs-sm, --mono',
+      '.drop-zone': 'drop-zone — --fs-sm, --s4',
+    };
+    Object.keys(areas).forEach(function(sel) {
+      var el = document.querySelector(sel);
+      if (el) {
+        el.style.position = el.style.position || 'relative';
+        el.setAttribute('data-probe', areas[sel]);
+      }
+    });
+    // Messages get labels too
+    document.querySelectorAll('.msg').forEach(function(m, i) {
+      m.style.position = 'relative';
+      m.setAttribute('data-probe', 'msg — --fs-body, --fs-xs');
+    });
+
+    // Render probe bar with current token values
+    updateProbeBar();
+  } else {
+    document.querySelectorAll('[data-probe]').forEach(function(el) {
+      el.removeAttribute('data-probe');
+    });
+    document.getElementById('pti-probe-bar').innerHTML = '';
+  }
+}
+
+function updateProbeBar() {
+  var r = getComputedStyle(document.documentElement);
+  var tokens = ['--font','--mono','--fs-2xs','--fs-xs','--fs-sm','--fs-body','--fs-lg','--fs-xl',
+    '--s1','--s2','--s3','--s4','--s5','--s6','--s7'];
+  var bar = document.getElementById('pti-probe-bar');
+  bar.innerHTML = tokens.map(function(t) {
+    return '<span>' + t + '=<strong>' + r.getPropertyValue(t).trim() + '</strong></span>';
+  }).join('');
+}
+
 // ── RYTMO: DOUBLE-TAP TO RECORD ──
 (function initRytmo() {
   var lastTap = 0;
@@ -2117,11 +2244,17 @@ function toggleNight() {
   }
 })();
 
-// ── TYPOGRAPHY PREFS ──
+// ── DESIGN TOKENS (PTI fatto → cascata CSS) ──
+// Spacing scale presets
+const SPACING_SCALES = {
+  phi:     [8, 13, 21, 34, 55, 89, 144],
+  compact: [4, 8, 12, 16, 24, 32, 48],
+  relaxed: [8, 16, 24, 32, 48, 64, 96],
+};
+
 function toggleTypoMenu() {
   document.getElementById('typo-popover').classList.toggle('open');
 }
-// Close popover on outside click
 document.addEventListener('click', function(e) {
   const pop = document.getElementById('typo-popover');
   if (pop.classList.contains('open') && !e.target.closest('.typo-popover') && !e.target.closest('.typo-gear')) {
@@ -2129,37 +2262,79 @@ document.addEventListener('click', function(e) {
   }
 });
 
-function applyTypo() {
-  const size = document.getElementById('typo-size').value;
+function applyTokens() {
+  const r = document.documentElement.style;
   const font = document.getElementById('typo-font').value;
+  const mono = document.getElementById('typo-mono').value;
+  const size = parseFloat(document.getElementById('typo-size').value);
   const lh = document.getElementById('typo-lh').value;
-  document.getElementById('typo-size-val').textContent = size + 'px';
+  const weight = document.getElementById('typo-weight').value;
+  const tracking = document.getElementById('typo-tracking').value;
+  const spacingKey = document.getElementById('typo-spacing').value;
+  const scale = SPACING_SCALES[spacingKey] || SPACING_SCALES.phi;
+
+  // PTI: fatto → derivati CSS custom properties → cascata a tutto il DOM
+  r.setProperty('--font', font);
+  r.setProperty('--mono', mono);
+  r.setProperty('--s1', scale[0] + 'px');
+  r.setProperty('--s2', scale[1] + 'px');
+  r.setProperty('--s3', scale[2] + 'px');
+  r.setProperty('--s4', scale[3] + 'px');
+  r.setProperty('--s5', scale[4] + 'px');
+  r.setProperty('--s6', scale[5] + 'px');
+  r.setProperty('--s7', scale[6] + 'px');
+
+  // Type scale: derive all sizes from base
+  var fs2xs = Math.round(size * 0.6 * 10) / 10;   // ~9px @ 15
+  var fsXs  = Math.round(size * 0.667 * 10) / 10;  // ~10px @ 15
+  var fsSm  = Math.round(size * 0.767 * 10) / 10;  // ~11.5px @ 15
+  var fsBody = Math.round(size * 0.933 * 10) / 10;  // ~14px @ 15
+  var fsLg  = Math.round(size * 1.2 * 10) / 10;    // ~18px @ 15
+  var fsXl  = Math.round(size * 1.467 * 10) / 10;   // ~22px @ 15
+
+  r.setProperty('--fs-base', size + 'px');
+  r.setProperty('--fs-2xs', fs2xs + 'px');
+  r.setProperty('--fs-xs', fsXs + 'px');
+  r.setProperty('--fs-sm', fsSm + 'px');
+  r.setProperty('--fs-body', fsBody + 'px');
+  r.setProperty('--fs-lg', fsLg + 'px');
+  r.setProperty('--fs-xl', fsXl + 'px');
+
+  // Body-level tokens
   document.body.style.fontSize = size + 'px';
   document.body.style.fontFamily = font;
   document.body.style.lineHeight = lh;
-  // Persist
-  localStorage.setItem('alessio-os-prefs', JSON.stringify({ size, font, lh }));
+  document.body.style.fontWeight = weight;
+  document.body.style.letterSpacing = tracking;
+
+  // Update display
+  document.getElementById('typo-size-val').textContent = size + 'px';
+
+  // Persist all tokens
+  localStorage.setItem('alessio-os-tokens', JSON.stringify({
+    font, mono, size, lh, weight, tracking, spacing: spacingKey
+  }));
+
+  // Update probe bar if active
+  if (document.documentElement.classList.contains('pti-probe')) {
+    updateProbeBar();
+  }
 }
 
-// Load saved prefs
-(function loadTypoPrefs() {
+// Load saved tokens on init
+(function loadTokens() {
   try {
-    const raw = localStorage.getItem('alessio-os-prefs');
+    const raw = localStorage.getItem('alessio-os-tokens');
     if (!raw) return;
-    const p = JSON.parse(raw);
-    if (p.size) {
-      document.getElementById('typo-size').value = p.size;
-      document.getElementById('typo-size-val').textContent = p.size + 'px';
-      document.body.style.fontSize = p.size + 'px';
-    }
-    if (p.font) {
-      document.getElementById('typo-font').value = p.font;
-      document.body.style.fontFamily = p.font;
-    }
-    if (p.lh) {
-      document.getElementById('typo-lh').value = p.lh;
-      document.body.style.lineHeight = p.lh;
-    }
+    const t = JSON.parse(raw);
+    if (t.font) document.getElementById('typo-font').value = t.font;
+    if (t.mono) document.getElementById('typo-mono').value = t.mono;
+    if (t.size) document.getElementById('typo-size').value = t.size;
+    if (t.lh) document.getElementById('typo-lh').value = t.lh;
+    if (t.weight) document.getElementById('typo-weight').value = t.weight;
+    if (t.tracking) document.getElementById('typo-tracking').value = t.tracking;
+    if (t.spacing) document.getElementById('typo-spacing').value = t.spacing;
+    applyTokens();
   } catch {}
 })();
 
@@ -2397,6 +2572,9 @@ sse.addEventListener('log', function(e) {
     <div class="debug-entry" style="color:var(--dim)">In attesa di eventi...</div>
   </div>
 </div>
+
+<!-- PTI Probe Bar -->
+<div class="pti-probe-bar" id="pti-probe-bar"></div>
 
 </body>
 </html>`;

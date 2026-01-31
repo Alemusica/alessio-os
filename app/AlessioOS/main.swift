@@ -132,6 +132,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 
+        // Dev menu
+        let devMenu = NSMenu(title: "Dev")
+        let restartItem = NSMenuItem(title: "Restart Dashboard", action: #selector(restartDashboard), keyEquivalent: "R")
+        restartItem.keyEquivalentModifierMask = [.command, .shift]
+        devMenu.addItem(restartItem)
+        devMenu.addItem(NSMenuItem(title: "Open Dev Tools", action: #selector(openDevTools), keyEquivalent: "i"))
+        let devMenuItem = NSMenuItem()
+        devMenuItem.submenu = devMenu
+        mainMenu.addItem(devMenuItem)
+
         NSApplication.shared.mainMenu = mainMenu
     }
 
@@ -149,6 +159,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let url = URL(string: DASHBOARD_URL) {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    @objc func restartDashboard() {
+        print("[AlessioOS] Restarting dashboard server...")
+        // Kill existing node/tsx processes running the dashboard
+        let kill = Process()
+        kill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        kill.arguments = ["-f", "tsx src/index.ts"]
+        try? kill.run()
+        kill.waitUntilExit()
+
+        // Start dashboard server again
+        let projectDir = ProcessInfo.processInfo.environment["ALESSIO_OS_DIR"]
+            ?? "\(NSHomeDirectory())/alessio-os"
+        let start = Process()
+        start.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        start.arguments = ["npm", "run", "dev"]
+        start.currentDirectoryURL = URL(fileURLWithPath: projectDir)
+        start.environment = ProcessInfo.processInfo.environment
+        try? start.run()
+
+        // Wait a bit then reload
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.reloadDashboard()
+            print("[AlessioOS] Dashboard reloaded")
+        }
+    }
+
+    @objc func openDevTools() {
+        // Toggle terminal panel open via JS
+        webView.evaluateJavaScript("""
+            var tp = document.querySelector('.terminal-panel');
+            if (tp && tp.classList.contains('collapsed')) {
+                tp.classList.remove('collapsed');
+            }
+        """, completionHandler: nil)
     }
 }
 
