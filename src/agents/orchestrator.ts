@@ -41,7 +41,6 @@
  */
 
 import { GrafoPTI } from '../pti/graph.js';
-import type { DeltaValore } from '../pti/graph.js';
 import {
   surqlQuery,
   createTask,
@@ -186,15 +185,17 @@ export class Orchestrator {
 
     // === DERIVATI (computati automaticamente) ===
 
-    // route := analyze(input.text) → { roles, priority }
+    // route := analyze(input.text, input.seq)
+    // FIX #2: usa input.seq come valore (monotonically increasing)
+    // evita comparazione JSON fragile — il seq cambia sempre
     this.grafo.derivato(
       'route',
       ['input.text', 'input.seq'],
       (s) => {
         const text = s.get('input.text') as string;
-        if (!text) return null;
-        const route = computeRoute(text);
-        return JSON.stringify({ ...route, text, project: s.get('input.project') ?? this.project });
+        const seq = s.get('input.seq') as number;
+        if (!text || seq === 0) return 0;  // 0 = nessun input
+        return seq;  // cambio garantito ad ogni input()
       },
     );
 
@@ -205,82 +206,112 @@ export class Orchestrator {
       (s) => this.maxParallel - (s.get('agents.running') as number ?? 0),
     );
 
+    // error.last — fatto che raccoglie errori da azioni async
+    this.grafo.fatto('error.last', null);
+    this.grafo.fatto('error.count', 0);
+
     // === AZIONI (side-effect, fire-and-forget) ===
 
-    // act:route — quando route cambia, crea task in SurrealDB
+    // act:route — quando route cambia (seq bumpa), crea task in SurrealDB
+    // FIX #1: errori propagati via fatto('error.last')
     this.grafo.azione(
       'act:route',
       ['route'],
       async (s) => {
-        const routeJson = s.get('route') as string | null;
-        if (!routeJson) return;
-        let route: RouteResult;
-        try { route = JSON.parse(routeJson); } catch { return; }
-        if (!route.text) return;
+        const seq = s.get('route') as number;
+        if (!seq) return;
 
-        this.log(`[route] ${route.roles.join(', ')} — priority ${route.priority}`, 'event');
+        // Leggi input corrente direttamente (non via JSON)
+        const text = this.grafo.leggi('input.text') as string;
+        const project = (this.grafo.leggi('input.project') as string) || this.project;
+        if (!text) return;
 
-        // Salva messaggio utente
-        await surqlQuery(`
-          CREATE chat_log SET
-            session_id = 'dashboard-live',
-            role = 'user',
-            content = $content,
-            project = $project,
-            created_at = time::now()
-        `, { content: route.text, project: route.project });
+        const route = computeRoute(text);
 
-        // Crea task per ogni role
-        for (let i = 0; i < route.roles.length; i++) {
-          const role = route.roles[i];
-          const taskDesc = route.roles.length > 1
-            ? `[${role}] ${route.text}`
-            : route.text;
+        try {
+          this.log(`[route] ${route.roles.join(', ')} — priority ${route.priority}`, 'event');
 
-          await createTask({
-            task: taskDesc,
-            project: route.project,
-            priority: route.priority - i,
+          // Salva messaggio utente
+          await surqlQuery(`
+            CREATE chat_log SET
+              session_id = 'dashboard-live',
+              role = 'user',
+              content = $content,
+              project = $project,
+              created_at = time::now()
+          `, { content: text, project });
+
+          // Crea task per ogni role
+          for (let i = 0; i < route.roles.length; i++) {
+            const role = route.roles[i];
+            const taskDesc = route.roles.length > 1
+              ? `[${role}] ${text}`
+              : text;
+
+            await createTask({
+              task: taskDesc,
+              project,
+              priority: route.priority - i,
+            });
+          }
+
+          // Salva contesto sessione
+          await saveSessionContext({
+            session_id: this.sessionId,
+            project,
+            decisions: [`Routed: ${route.roles.join(', ')} — priority ${route.priority}`],
+            agent_roles: route.roles,
           });
+
+          // Bump queue version → triggera act:dispatch
+          this.grafo.fatto('queue.version', (this.grafo.leggi('queue.version') as number) + 1);
+        } catch (err) {
+          // FIX #1: propaga errore nel grafo
+          const msg = err instanceof Error ? err.message : String(err);
+          this.log(`[act:route] ERROR: ${msg}`, 'error');
+          this.grafo.fatto('error.last', { source: 'act:route', msg, ts: Date.now() });
+          this.grafo.fatto('error.count', (this.grafo.leggi('error.count') as number) + 1);
         }
-
-        // Salva contesto sessione
-        await saveSessionContext({
-          session_id: this.sessionId,
-          project: route.project,
-          decisions: [`Routed: ${route.roles.join(', ')} — priority ${route.priority}`],
-          agent_roles: route.roles,
-        });
-
-        // Bump queue version → triggera can.dispatch
-        this.grafo.fatto('queue.version', (this.grafo.leggi('queue.version') as number) + 1);
       },
     );
 
-    // act:dispatch — quando queue.version o capacity cambiano, spawna se possibile
-    // Dipende da capacity + queue.version direttamente (non da un derivato booleano
-    // che non cambierebbe valore e non propagherebbe)
+    // act:dispatch — quando queue.version o capacity cambiano, spawna TUTTI i pending
+    // FIX #3: loop fino a capacity esaurita — parallelismo immediato
+    // FIX #1: errori propagati via fatto('error.last')
     this.grafo.azione(
       'act:dispatch',
       ['capacity', 'queue.version'],
       async (s) => {
         const capacity = s.get('capacity') as number;
         if (capacity <= 0) return;
-        if (this.running.size >= this.maxParallel) return;
 
-        // Cerca prossimo task pending
-        const res = await surqlQuery(`
-          SELECT * FROM task_queue
-          WHERE status = 'pending'
-          ORDER BY priority DESC
-          LIMIT 1
-        `);
-        const tasks = res[0]?.result as Array<{ id: string; task: string; project: string }>;
-        if (!tasks || tasks.length === 0) return;
+        // Quanti slot liberi?
+        const slots = Math.min(capacity, this.maxParallel - this.running.size);
+        if (slots <= 0) return;
 
-        const task = tasks[0];
-        const role = detectRole(task.task);
-        await this.spawnAgent(task.id, task.task, task.project, role);
+        try {
+          // FIX #3: prendi TUTTI i pending fino a slots disponibili
+          const res = await surqlQuery(`
+            SELECT * FROM task_queue
+            WHERE status = 'pending'
+            ORDER BY priority DESC
+            LIMIT $limit
+          `, { limit: slots });
+          const tasks = res[0]?.result as Array<{ id: string; task: string; project: string }>;
+          if (!tasks || tasks.length === 0) return;
+
+          // Spawna in parallelo
+          const spawns = tasks.map(task => {
+            const role = detectRole(task.task);
+            return this.spawnAgent(task.id, task.task, task.project, role);
+          });
+          await Promise.all(spawns);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.log(`[act:dispatch] ERROR: ${msg}`, 'error');
+          this.grafo.fatto('error.last', { source: 'act:dispatch', msg, ts: Date.now() });
+          this.grafo.fatto('error.count', (this.grafo.leggi('error.count') as number) + 1);
+        }
       },
     );
 
@@ -380,11 +411,13 @@ export class Orchestrator {
       this.log(chunk.toString(), 'error');
     });
 
-    // Handle spawn errors
+    // Handle spawn errors — propagate via fatto('error.last')
     child.on('error', (err) => {
       this.log(`[${agentId}] spawn error: ${err.message}`, 'error');
       this.running.delete(agentId);
       this.grafo.fatto('agents.running', this.running.size);
+      this.grafo.fatto('error.last', { source: `agent:${agentId}`, msg: err.message, ts: Date.now() });
+      this.grafo.fatto('error.count', (this.grafo.leggi('error.count') as number) + 1);
       completeTask(taskId, `ERROR: ${err.message}`).catch(() => {});
       if (agent.promptFile) {
         try { unlinkSync(agent.promptFile); } catch { /* ok */ }
