@@ -82,7 +82,7 @@ async function getProjectSessions(project: string): Promise<ChatSummary[]> {
 async function getProjectTopics(project: string): Promise<TopicCluster[]> {
   // Estrai le ultime 100 chat per analisi topic
   const res = await surqlQuery(`
-    SELECT content, session_id FROM chat_log
+    SELECT content, session_id, created_at FROM chat_log
     WHERE project = $project AND role = 'user'
     ORDER BY created_at DESC LIMIT 100
   `, { project });
@@ -122,7 +122,7 @@ async function getProjectTopics(project: string): Promise<TopicCluster[]> {
 
 async function getProjectTasks(project: string): Promise<Array<{ task: string; status: string }>> {
   const res = await surqlQuery(`
-    SELECT task, status FROM task_queue
+    SELECT task, status, created_at FROM task_queue
     WHERE project = $project
     ORDER BY created_at DESC LIMIT 20
   `, { project });
