@@ -177,9 +177,11 @@ export class AgentWorker {
     this.log(`[${agentId}] ${role} → "${task.slice(0, 80)}"`, 'agent-name');
 
     // Build enriched context
+    let systemPrompt = '';
     let promptFile = '';
     try {
       const ctx = await buildContext({ project, role, task });
+      systemPrompt = ctx.systemPrompt;
       promptFile = ctx.promptFile;
       this.log(`[${agentId}] Context: ${ctx.sections.projectMemory} chat, ${ctx.sections.experiences} exp, ${ctx.sections.knowledge} kb`, 'dim');
     } catch (err) {
@@ -189,10 +191,10 @@ export class AgentWorker {
     // Resolve project working directory
     const cwd = resolveProjectCwd(project);
 
-    // Spawn claude
+    // Spawn claude — --system-prompt takes a string, not a file path
     const args: string[] = [];
-    if (promptFile) {
-      args.push('--system-prompt', promptFile);
+    if (systemPrompt) {
+      args.push('--system-prompt', systemPrompt);
     }
     args.push('-p', task);
 

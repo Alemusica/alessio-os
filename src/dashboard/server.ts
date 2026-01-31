@@ -1036,6 +1036,64 @@ function dashboardHTML(): string {
   .proj-rose { background: var(--rose-bg); color: var(--rose); }
   .proj-blue { background: var(--blue-bg); color: var(--blue); }
   .proj-accent { background: var(--accent-bg); color: var(--accent); }
+
+  /* ── MARKDOWN IN BUBBLES ── */
+  .md-code {
+    display: block; background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: var(--s3) var(--s4); margin: var(--s2) 0;
+    font-family: var(--mono); font-size: 12px; overflow-x: auto; white-space: pre;
+  }
+  .md-inline {
+    background: var(--bg); padding: 1px 5px; border-radius: 3px;
+    font-family: var(--mono); font-size: 0.9em;
+  }
+  .md-h1 { font-size: 16px; font-weight: 700; margin: var(--s3) 0 var(--s2); }
+  .md-h2 { font-size: 14px; font-weight: 600; margin: var(--s3) 0 var(--s1); }
+  .md-h3 { font-size: 13px; font-weight: 600; margin: var(--s2) 0 var(--s1); color: var(--text-secondary); }
+  .md-li { padding-left: var(--s4); position: relative; }
+  .md-li::before { content: '•'; position: absolute; left: var(--s2); color: var(--dim); }
+  .md-hr { border: none; border-top: 1px solid var(--border); margin: var(--s3) 0; }
+
+  /* ── DEBUG PANEL ── */
+  .debug-panel {
+    position: fixed; bottom: 0; right: 0; width: 360px; max-height: 50vh;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius) 0 0 0;
+    z-index: 200; display: none; flex-direction: column; font-size: 11px;
+    box-shadow: -2px -2px 12px rgba(0,0,0,0.06);
+  }
+  .debug-panel.open { display: flex; }
+  .debug-header {
+    padding: var(--s2) var(--s3); background: var(--bg); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: var(--s2); cursor: pointer;
+    font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; font-size: 9px;
+    color: var(--dim);
+  }
+  .debug-header .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  .debug-body {
+    overflow-y: auto; flex: 1; padding: var(--s2) var(--s3); max-height: 40vh;
+  }
+  .debug-entry {
+    padding: var(--s1) 0; border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: 10px; line-height: 1.5;
+  }
+  .debug-entry .de-time { color: var(--dim); margin-right: var(--s2); }
+  .debug-entry .de-type {
+    display: inline-block; padding: 0 4px; border-radius: 3px;
+    font-size: 9px; font-weight: 500; margin-right: var(--s1);
+  }
+  .de-route { background: var(--blue-bg); color: var(--blue); }
+  .de-context { background: var(--green-bg); color: var(--green); }
+  .de-spawn { background: var(--amber-bg); color: var(--amber); }
+  .de-done { background: var(--accent-bg); color: var(--accent); }
+  .de-error { background: var(--rose-bg); color: var(--rose); }
+  .debug-toggle {
+    position: fixed; bottom: var(--s3); right: var(--s3); z-index: 201;
+    width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--surface); cursor: pointer; display: flex; align-items: center;
+    justify-content: center; font-size: 14px; color: var(--dim); transition: all 0.15s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  .debug-toggle:hover { color: var(--accent); border-color: var(--accent-light); }
 </style>
 </head>
 <body>
@@ -1535,12 +1593,43 @@ async function handleFiles(files) {
   if (audio.length > 0) await uploadSTT(audio);
 }
 
+// ── SIMPLE MARKDOWN RENDERER ──
+function renderMd(text) {
+  var BT = String.fromCharCode(96); // backtick
+  var BT3 = BT + BT + BT;
+  var html = esc(text);
+  // Code blocks
+  var cbRe = new RegExp(BT3 + '(\\\\w*)\\n([\\\\s\\\\S]*?)' + BT3, 'g');
+  html = html.replace(cbRe, function(_, lang, code) {
+    return '<pre class="md-code"><code>' + code.trim() + '</code></pre>';
+  });
+  // Inline code
+  var icRe = new RegExp(BT + '([^' + BT + ']+)' + BT, 'g');
+  html = html.replace(icRe, '<code class="md-inline">$1</code>');
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<div class="md-h3">$1</div>');
+  html = html.replace(/^## (.+)$/gm, '<div class="md-h2">$1</div>');
+  html = html.replace(/^# (.+)$/gm, '<div class="md-h1">$1</div>');
+  // List items
+  html = html.replace(/^- (.+)$/gm, '<div class="md-li">$1</div>');
+  // Horizontal rule
+  html = html.replace(/^---$/gm, '<hr class="md-hr">');
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
 function showResult(title, body, meta, isError) {
   const area = document.getElementById('results-area');
   const card = document.createElement('div');
   card.className = 'result-card' + (isError ? ' error' : '');
+  const renderedBody = (title === 'Assistant') ? renderMd(body) : esc(body);
   card.innerHTML = '<div class="rc-title">' + esc(title) + '</div>' +
-    '<div class="rc-body">' + esc(body) + '</div>' +
+    '<div class="rc-body">' + renderedBody + '</div>' +
     (meta ? '<div class="rc-meta">' + esc(meta) + '</div>' : '');
   area.appendChild(card);
   const scroll = document.getElementById('chat-content');
@@ -1888,7 +1977,56 @@ switchView = function(name) {
   if (name === 'timeline') loadTimeline(true);
   if (name === 'mcp') loadMcpStatus();
 };
+
+// ── DEBUG PANEL ──
+function toggleDebug() {
+  document.getElementById('debug-panel').classList.toggle('open');
+}
+
+const debugEntries = [];
+function addDebug(type, text) {
+  const now = new Date().toLocaleTimeString('it-IT', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  debugEntries.push({ time: now, type, text });
+  if (debugEntries.length > 100) debugEntries.shift();
+  renderDebug();
+}
+
+function renderDebug() {
+  const body = document.getElementById('debug-body');
+  if (!body) return;
+  body.innerHTML = debugEntries.slice().reverse().map(function(e) {
+    const cls = e.type === 'route' ? 'de-route' : e.type === 'context' ? 'de-context' :
+                e.type === 'spawn' ? 'de-spawn' : e.type === 'done' ? 'de-done' : 'de-error';
+    return '<div class="debug-entry"><span class="de-time">' + e.time + '</span>' +
+      '<span class="de-type ' + cls + '">' + e.type + '</span>' + esc(e.text) + '</div>';
+  }).join('');
+}
+
+// Hook into SSE log events to capture debug info
+const origLogHandler = sse.addEventListener;
+sse.addEventListener('log', function(e) {
+  const d = JSON.parse(e.data);
+  const t = d.text || '';
+  // Classify log entries for debug panel
+  if (t.includes('[route]')) addDebug('route', t);
+  else if (t.includes('Context:')) addDebug('context', t);
+  else if (t.includes('dispatched') || t.includes('coder →') || t.includes('tester →') || t.includes('reviewer →') || t.includes('researcher →')) addDebug('spawn', t);
+  else if (t.includes('exit:')) addDebug('done', t);
+  else if (d.cls === 'error') addDebug('error', t);
+});
 </script>
+
+<!-- DEBUG PANEL -->
+<button class="debug-toggle" onclick="toggleDebug()" title="Debug Panel">&#9881;</button>
+<div class="debug-panel" id="debug-panel">
+  <div class="debug-header" onclick="toggleDebug()">
+    <span class="dot"></span> Agent Debug Monitor
+  </div>
+  <div class="debug-body" id="debug-body">
+    <div class="debug-entry" style="color:var(--dim)">In attesa di eventi...</div>
+  </div>
+</div>
+
 </body>
 </html>`;
 }
