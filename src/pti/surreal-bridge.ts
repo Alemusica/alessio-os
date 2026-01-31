@@ -10,7 +10,9 @@
 const SURREAL_URL = 'http://127.0.0.1:8000/sql';
 const SURREAL_NS = 'research';
 const SURREAL_DB = 'knowledge';
-const SURREAL_AUTH = Buffer.from('root:root').toString('base64');
+const SURREAL_USER = process.env.SURREAL_USER ?? 'root';
+const SURREAL_PASS = process.env.SURREAL_PASS ?? 'root';
+const SURREAL_AUTH = Buffer.from(`${SURREAL_USER}:${SURREAL_PASS}`).toString('base64');
 
 export interface SurrealResponse {
   result: unknown[];
@@ -57,7 +59,11 @@ export async function surqlQuery(query: string, vars?: Record<string, unknown>):
     body,
   });
 
-  if (!res.ok) throw new Error(`SurrealDB ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    let body = '';
+    try { body = await res.text(); } catch { /* network error */ }
+    throw new Error(`SurrealDB ${res.status}: ${body}`);
+  }
   return res.json() as Promise<SurrealResponse[]>;
 }
 

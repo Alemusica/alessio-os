@@ -109,6 +109,11 @@ export class GrafoPTI {
     sorgenti: string[],
     regola: (s: Map<string, unknown>, delta: Delta) => unknown,
   ): void {
+    // Cycle detection: verifica che nessuna sorgente dipenda (direttamente o transitivamente) da id
+    if (this.hasCycle(id, sorgenti)) {
+      throw new Error(`[PTI] Dipendenza circolare: ${id} → ${sorgenti.join(', ')} → ... → ${id}`);
+    }
+
     let maxLivello = 0;
     for (const sId of sorgenti) {
       const s = this.nodi.get(sId);
@@ -201,9 +206,16 @@ export class GrafoPTI {
   // --- SALTO: soggetto → [destinazioni] ---
   salto(sorgente: string, destinazioni: string[]): void {
     const nodo = this.nodi.get(sorgente);
-    if (nodo) {
-      nodo.salti = [...new Set([...nodo.salti, ...destinazioni])];
+    if (!nodo) {
+      console.warn(`[PTI] salto: sorgente '${sorgente}' non esiste`);
+      return;
     }
+    for (const d of destinazioni) {
+      if (!this.nodi.has(d)) {
+        console.warn(`[PTI] salto: destinazione '${d}' non esiste`);
+      }
+    }
+    nodo.salti = [...new Set([...nodo.salti, ...destinazioni])];
   }
 
   // --- LEGGI: O(1) lookup ---
@@ -422,16 +434,56 @@ export class GrafoPTI {
 
   // --- Processa fatto() accodati durante propagazione ---
   private processaCodaDifferita(): void {
-    while (this.codaDifferita.length > 0) {
+    const MAX_ITERATIONS = 100;
+    const seen = new Set<string>();
+    let iterations = 0;
+
+    while (this.codaDifferita.length > 0 && iterations < MAX_ITERATIONS) {
+      iterations++;
       const batch = [...this.codaDifferita];
       this.codaDifferita = [];
       for (const { id, valore } of batch) {
+        const key = `${id}:${JSON.stringify(valore)}`;
+        if (seen.has(key)) continue; // ciclo rilevato — skip
+        seen.add(key);
         this.fatto(id, valore);
       }
+    }
+
+    if (iterations >= MAX_ITERATIONS) {
+      console.error(`[PTI] processaCodaDifferita: max ${MAX_ITERATIONS} iterazioni — possibile ciclo`);
+      this.codaDifferita = []; // drain per non bloccare
     }
   }
 
   // ==================== UTILITY ====================
+
+  /** DFS cycle detection: verifica se aggiungere id con queste sorgenti crea un ciclo */
+  private hasCycle(newId: string, newSorgenti: string[]): boolean {
+    // Se newId è tra le sorgenti → self-loop
+    if (newSorgenti.includes(newId)) return true;
+
+    // DFS: da newId, segui i dipendenti (nodi che dipendono da newId).
+    // Se raggiungiamo una delle newSorgenti → ciclo
+    const target = new Set(newSorgenti);
+    const visited = new Set<string>();
+
+    const dfs = (nodeId: string): boolean => {
+      if (target.has(nodeId)) return true;
+      if (visited.has(nodeId)) return false;
+      visited.add(nodeId);
+
+      const deps = this.dipendenti.get(nodeId);
+      if (deps) {
+        for (const depId of deps) {
+          if (dfs(depId)) return true;
+        }
+      }
+      return false;
+    };
+
+    return dfs(newId);
+  }
 
   private raccogliSorgenti(sorgenti: string[]): Map<string, unknown> {
     const m = new Map<string, unknown>();

@@ -151,6 +151,7 @@ export class Orchestrator {
   private project: string;
   private maxParallel: number;
   private running: Map<string, RunningAgent> = new Map();
+  private dispatching = false; // mutex per act:dispatch
   private log: (text: string, cls: string) => void;
   private onResponse: (text: string, taskId: string) => void;
 
@@ -284,24 +285,28 @@ export class Orchestrator {
       async (s) => {
         const capacity = s.get('capacity') as number;
         if (capacity <= 0) return;
+        if (this.dispatching) return; // mutex: un dispatch alla volta
 
-        // Quanti slot liberi?
         const slots = Math.min(capacity, this.maxParallel - this.running.size);
         if (slots <= 0) return;
 
+        this.dispatching = true;
         try {
-          // FIX #3: prendi TUTTI i pending fino a slots disponibili
+          // Atomic claim: UPDATE status in-place, RETURN BEFORE per ottenere i record
           const res = await surqlQuery(`
-            SELECT * FROM task_queue
+            UPDATE task_queue SET status = 'claimed'
             WHERE status = 'pending'
             ORDER BY priority DESC
             LIMIT $limit
+            RETURN BEFORE
           `, { limit: slots });
-          const tasks = res[0]?.result as Array<{ id: string; task: string; project: string }>;
-          if (!tasks || tasks.length === 0) return;
+          const tasks = res[0]?.result as Array<{ id: string; task: string; project: string; status: string }>;
+          // Filtra solo quelli che erano effettivamente pending (atomic claim)
+          const pending = tasks?.filter(t => t.status === 'pending') ?? [];
+          if (pending.length === 0) return;
 
           // Spawna in parallelo
-          const spawns = tasks.map(task => {
+          const spawns = pending.map(task => {
             const role = detectRole(task.task);
             return this.spawnAgent(task.id, task.task, task.project, role);
           });
@@ -311,6 +316,8 @@ export class Orchestrator {
           this.log(`[act:dispatch] ERROR: ${msg}`, 'error');
           this.grafo.fatto('error.last', { source: 'act:dispatch', msg, ts: Date.now() });
           this.grafo.fatto('error.count', (this.grafo.leggi('error.count') as number) + 1);
+        } finally {
+          this.dispatching = false;
         }
       },
     );

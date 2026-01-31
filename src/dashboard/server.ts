@@ -301,7 +301,6 @@ async function handleTranscribe(req: IncomingMessage): Promise<unknown> {
     // whisper outputs <basename>.json
     const baseName = tmp.split('/').pop()!.replace(/\.[^.]+$/, '');
     const jsonPath = join(outDir, baseName + '.json');
-    const { readFileSync } = await import('fs');
     const result = JSON.parse(readFileSync(jsonPath, 'utf-8'));
     try { unlinkSync(jsonPath); } catch { /* ok */ }
     return { text: result.text ?? '', segments: result.segments ?? [], file: f.filename };

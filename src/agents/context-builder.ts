@@ -199,12 +199,15 @@ export async function buildContext(req: ContextRequest): Promise<BuiltContext> {
     // Estrai keyword dal task per cercare nella KB
     const keywords = extractKeywords(req.task, req.project);
     if (keywords.length > 0) {
-      const kwFilter = keywords.map(k => `content CONTAINS '${k}'`).join(' OR ');
+      // Parametrized query — no SQL injection
+      const kwFilter = keywords.map((_, i) => `content CONTAINS $kw${i}`).join(' OR ');
+      const kwParams: Record<string, unknown> = {};
+      keywords.forEach((k, i) => { kwParams[`kw${i}`] = k; });
       const kbRes = await surqlQuery(`
         SELECT title, content, source FROM knowledge
         WHERE ${kwFilter}
         ORDER BY created_at DESC LIMIT 5
-      `);
+      `, kwParams);
 
       const docs = kbRes[0]?.result;
       if (Array.isArray(docs) && docs.length > 0) {
