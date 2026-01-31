@@ -1747,6 +1747,33 @@ async function uploadSTTForm(fd) {
   prompt.textContent = '| Drop OCR/STT';
 }
 
+// ── RYTMO: DOUBLE-TAP TO RECORD ──
+(function initRytmo() {
+  var lastTap = 0;
+  var tapTimeout = null;
+  var TAP_GAP = 400; // max ms between taps
+
+  document.getElementById('chat-view').addEventListener('pointerup', function(e) {
+    // Ignore taps on interactive elements
+    if (e.target.closest('textarea, button, input, a, select')) return;
+
+    var now = Date.now();
+    if (now - lastTap < TAP_GAP) {
+      // Double-tap detected
+      clearTimeout(tapTimeout);
+      lastTap = 0;
+      toggleMic();
+      // Visual feedback
+      var dz = document.getElementById('drop-zone');
+      dz.style.borderColor = 'var(--accent)';
+      setTimeout(function() { dz.style.borderColor = ''; }, 600);
+    } else {
+      lastTap = now;
+      tapTimeout = setTimeout(function() { lastTap = 0; }, TAP_GAP);
+    }
+  });
+})();
+
 // ── TYPOGRAPHY PREFS ──
 function toggleTypoMenu() {
   document.getElementById('typo-popover').classList.toggle('open');
