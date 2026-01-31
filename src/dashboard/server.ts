@@ -17,7 +17,7 @@ import { surqlQuery } from '../pti/surreal-bridge.js';
 import { Orchestrator } from '../agents/orchestrator.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PORT = 3777;
+const PORT = parseInt(process.env.PORT ?? '3777', 10);
 
 // --- Orchestrator singleton (started in startDashboard) ---
 let orchestrator: Orchestrator | null = null;
@@ -1144,6 +1144,48 @@ function dashboardHTML(): string {
     box-shadow: 0 2px 8px rgba(0,0,0,0.05);
   }
   .debug-toggle:hover { color: var(--accent); border-color: var(--accent-light); }
+
+  /* ── NIGHT VIEW ── */
+  .night {
+    --bg: #1C1A17;
+    --surface: #242220;
+    --border: #3A3632;
+    --border-strong: #4A4540;
+    --text: #D8D2CA;
+    --text-secondary: #9E978E;
+    --dim: #6B655D;
+    --accent: #C4A478;
+    --accent-light: #A08968;
+    --accent-bg: #2A2520;
+    --green: #7FA882;
+    --green-bg: #1E2820;
+    --amber: #C9A54A;
+    --amber-bg: #282418;
+    --rose: #C08080;
+    --rose-bg: #281E1E;
+    --blue: #8A9EB5;
+    --blue-bg: #1C2228;
+  }
+  .night header { border-bottom-color: var(--dim); }
+  .night .file-link:hover { background: #352F28; }
+  .night .session-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+  .night .debug-panel { box-shadow: -2px -2px 12px rgba(0,0,0,0.3); }
+  .night .debug-toggle { box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+  .night .typo-popover { box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+  .night .btn-accent { color: #1C1A17; }
+  .night .btn-send { color: #1C1A17; }
+  .night ::selection { background: rgba(196, 164, 120, 0.3); }
+
+  /* Night mode toggle (inside typo popover) */
+  .night-toggle {
+    width: 100%; padding: var(--s2) var(--s3); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); font-family: var(--font); font-size: 12px;
+    background: var(--bg); color: var(--text); cursor: pointer;
+    transition: all 0.15s; text-align: left; display: flex; align-items: center; gap: var(--s2);
+  }
+  .night-toggle:hover { border-color: var(--accent-light); background: var(--accent-bg); }
+  .night .night-toggle { background: var(--accent); color: #1C1A17; border-color: var(--accent); }
+  .night .night-toggle:hover { background: var(--accent-light); }
 </style>
 </head>
 <body>
@@ -1168,6 +1210,10 @@ function dashboardHTML(): string {
         <option value="1.618" selected>&#966; 1.618 (golden)</option>
         <option value="1.8">1.8 (spacious)</option>
       </select>
+      <label>Theme</label>
+      <button class="night-toggle" id="night-btn" onclick="toggleNight()">
+        <span id="night-icon">&#9790;</span> Night view
+      </button>
     </div>
     <div class="health-indicator" id="health">
       <span class="dot" id="health-dot"></span>
@@ -1863,6 +1909,22 @@ function toggleMic() {
       tapTimeout = setTimeout(function() { lastTap = 0; }, TAP_GAP);
     }
   });
+})();
+
+// ── NIGHT VIEW ──
+function toggleNight() {
+  document.documentElement.classList.toggle('night');
+  const on = document.documentElement.classList.contains('night');
+  localStorage.setItem('alessio-os-night', on ? '1' : '0');
+  const icon = document.getElementById('night-icon');
+  if (icon) icon.innerHTML = on ? '\\u2600' : '\\u263E';
+}
+(function initNight() {
+  if (localStorage.getItem('alessio-os-night') === '1') {
+    document.documentElement.classList.add('night');
+    const icon = document.getElementById('night-icon');
+    if (icon) icon.innerHTML = '\\u2600';
+  }
 })();
 
 // ── TYPOGRAPHY PREFS ──

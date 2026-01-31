@@ -1,5 +1,12 @@
 /**
- * PTI Core Runtime v4 — Grafo Reattivo Completo
+ * PTI Core Runtime v4.1 — Refactor
+ *
+ * v4.0 → v4.1:
+ * - Delta strutturali: DeltaLista, DeltaMappa calcolati automaticamente
+ * - Assert bloccanti: opzione per rifiutare delta che violano integrità
+ * - Salti integrati nel topological sort (propagazione unificata)
+ * - Delta event log: registro temporale per causal tracing
+ * - causa(), catena(), simula(): introspezione causale
  *
  * FATTI:     nodi base, valore assegnato con =
  * DERIVATI:  nodi materializzati, regola con :=
@@ -7,21 +14,77 @@
  * SALTI:     connessioni dichiarate con → (cross-gerarchia)
  * ASSERT:    vincoli invarianti, controllati durante propagazione
  * DELTA:     propagazione incrementale, mai ricalcolo totale
- *
- * Il grafo è il control flow. Niente polling, niente imperativi.
- * fatto() → propaga derivati → trigger azioni → nuovi fatti → ...
  */
 
 // ==================== TIPI DELTA ====================
 
-export type DeltaValore = { prima: unknown; dopo: unknown };
+export type DeltaValore = { tipo: 'valore'; prima: unknown; dopo: unknown };
 export type DeltaLista = {
-  aggiunti?: unknown[];
-  rimossi?: unknown[];
-  modifiche?: Array<{ idx: number; prima: unknown; dopo: unknown }>;
+  tipo: 'lista';
+  aggiunti: unknown[];
+  rimossi: unknown[];
 };
-export type DeltaMappa = { set?: Record<string, unknown>; unset?: string[] };
+export type DeltaMappa = {
+  tipo: 'mappa';
+  set: Record<string, unknown>;
+  unset: string[];
+};
 export type Delta = DeltaValore | DeltaLista | DeltaMappa;
+
+// Type guards
+export function isDeltaValore(d: Delta): d is DeltaValore { return d.tipo === 'valore'; }
+export function isDeltaLista(d: Delta): d is DeltaLista { return d.tipo === 'lista'; }
+export function isDeltaMappa(d: Delta): d is DeltaMappa { return d.tipo === 'mappa'; }
+
+// ==================== COMPUTE DELTA ====================
+
+export function computaDelta(prima: unknown, dopo: unknown): Delta {
+  // Array → DeltaLista
+  if (Array.isArray(prima) && Array.isArray(dopo)) {
+    const primaSet = new Set(prima.map(x => JSON.stringify(x)));
+    const dopoSet = new Set(dopo.map(x => JSON.stringify(x)));
+    const aggiunti = dopo.filter(x => !primaSet.has(JSON.stringify(x)));
+    const rimossi = prima.filter(x => !dopoSet.has(JSON.stringify(x)));
+    if (aggiunti.length > 0 || rimossi.length > 0) {
+      return { tipo: 'lista', aggiunti, rimossi };
+    }
+    return { tipo: 'valore', prima, dopo };
+  }
+
+  // Plain object → DeltaMappa
+  if (
+    prima !== null && dopo !== null &&
+    typeof prima === 'object' && typeof dopo === 'object' &&
+    !Array.isArray(prima) && !Array.isArray(dopo)
+  ) {
+    const p = prima as Record<string, unknown>;
+    const d = dopo as Record<string, unknown>;
+    const set: Record<string, unknown> = {};
+    const unset: string[] = [];
+    for (const key of Object.keys(d)) {
+      if (p[key] !== d[key]) set[key] = d[key];
+    }
+    for (const key of Object.keys(p)) {
+      if (!(key in d)) unset.push(key);
+    }
+    if (Object.keys(set).length > 0 || unset.length > 0) {
+      return { tipo: 'mappa', set, unset };
+    }
+    return { tipo: 'valore', prima, dopo };
+  }
+
+  // Scalar → DeltaValore
+  return { tipo: 'valore', prima, dopo };
+}
+
+// ==================== DELTA LOG ====================
+
+export interface DeltaLogEntry {
+  timestamp: number;
+  nodoId: string;
+  delta: Delta;
+  causa: string;  // ID del fatto che ha originato la propagazione
+}
 
 // ==================== NODO ====================
 
@@ -38,6 +101,7 @@ export interface Nodo {
   effetto?: (sorgenti: Map<string, unknown>, delta: Delta) => void | Promise<void>;
   predicato?: (sorgenti: Map<string, unknown>) => boolean;
   messaggioAssert?: string;
+  bloccante?: boolean;                // assert bloccante: rifiuta delta
   ultimoDelta?: Delta;
   accessCount: number;                // per biocache
 }
@@ -49,42 +113,74 @@ export interface AssertViolation {
   messaggio: string;
   sorgenti: Map<string, unknown>;
   timestamp: number;
+  bloccato: boolean;                  // delta è stato bloccato?
 }
 
-// ==================== GRAFO PTI v4 ====================
+// ==================== ORDINE PROPAGAZIONE ====================
+// Dentro lo stesso livello: derivato → assert → azione
+// Assicura: computa valori, verifica integrità, poi side-effect
+
+const TIPO_ORDINE: Record<NodoTipo, number> = {
+  fatto: 0,
+  derivato: 1,
+  assert: 2,
+  azione: 3,
+};
+
+// ==================== GRAFO PTI v4.1 ====================
 
 export class GrafoPTI {
   private nodi: Map<string, Nodo> = new Map();
-  private dipendenti: Map<string, Set<string>> = new Map();  // inverso di sorgenti
+  private dipendenti: Map<string, Set<string>> = new Map();
   private listeners: Map<string, Array<(nodo: Nodo, delta: Delta) => void>> = new Map();
-  private propagando = false;   // guard reentrant propagation
+  private propagando = false;
+  private simulando = false;          // skip side effects durante simula()
   private codaDifferita: Array<{ id: string; valore: unknown }> = [];
   private violations: AssertViolation[] = [];
+  readonly deltaLog: DeltaLogEntry[] = [];
   private onViolation?: (v: AssertViolation) => void;
+  private causaCorrente = '';
+  private maxLogSize: number;
 
-  constructor(opts?: { onViolation?: (v: AssertViolation) => void }) {
+  constructor(opts?: {
+    onViolation?: (v: AssertViolation) => void;
+    maxLogSize?: number;
+  }) {
     this.onViolation = opts?.onViolation;
+    this.maxLogSize = opts?.maxLogSize ?? 10_000;
   }
 
   // --- FATTO: soggetto.attributo = valore ---
-  fatto(id: string, valore: unknown): void {
-    // Se stiamo propagando, accoda (evita ricorsione)
+  // Ritorna true se accettato, false se bloccato da assert
+  fatto(id: string, valore: unknown): boolean {
     if (this.propagando) {
       this.codaDifferita.push({ id, valore });
-      return;
+      return true;
     }
 
     if (this.nodi.has(id)) {
       const nodo = this.nodi.get(id)!;
-      if (nodo.valore === valore) return;  // no-op se uguale
-      const delta: DeltaValore = { prima: nodo.valore, dopo: valore };
+      if (nodo.valore === valore) return true;
+
+      const delta = computaDelta(nodo.valore, valore);
+      const snap = this.snapshot();
       nodo.valore = valore;
       nodo.ultimoDelta = delta;
       nodo.accessCount++;
-      this.propaga(id, delta);
-      return;
+
+      this.causaCorrente = id;
+      const bloccato = this.propaga(id, delta);
+
+      if (bloccato) {
+        this.rollback(snap);
+        return false;
+      }
+
+      this.registraLog(id, delta, id);
+      return true;
     }
 
+    // Nuovo fatto
     const nodo: Nodo = {
       id,
       tipo: 'fatto',
@@ -97,10 +193,12 @@ export class GrafoPTI {
     this.nodi.set(id, nodo);
     this.dipendenti.set(id, new Set());
 
-    // Propaga anche la prima volta (per triggerer derivati/azioni gia' registrati)
-    const delta: DeltaValore = { prima: undefined, dopo: valore };
+    const delta: Delta = { tipo: 'valore', prima: undefined, dopo: valore };
     nodo.ultimoDelta = delta;
+    this.causaCorrente = id;
     this.propaga(id, delta);
+    this.registraLog(id, delta, id);
+    return true;
   }
 
   // --- DERIVATO: soggetto := regola(sorgenti) ---
@@ -109,7 +207,6 @@ export class GrafoPTI {
     sorgenti: string[],
     regola: (s: Map<string, unknown>, delta: Delta) => unknown,
   ): void {
-    // Cycle detection: verifica che nessuna sorgente dipenda (direttamente o transitivamente) da id
     if (this.hasCycle(id, sorgenti)) {
       throw new Error(`[PTI] Dipendenza circolare: ${id} → ${sorgenti.join(', ')} → ... → ${id}`);
     }
@@ -120,9 +217,9 @@ export class GrafoPTI {
       if (s && s.livello >= maxLivello) maxLivello = s.livello + 1;
     }
 
-    // Materializza valore iniziale
     const valoriSorgenti = this.raccogliSorgenti(sorgenti);
-    const valoreIniziale = regola(valoriSorgenti, { prima: undefined, dopo: undefined });
+    const initDelta: Delta = { tipo: 'valore', prima: undefined, dopo: undefined };
+    const valoreIniziale = regola(valoriSorgenti, initDelta);
 
     const nodo: Nodo = {
       id,
@@ -141,7 +238,6 @@ export class GrafoPTI {
   }
 
   // --- AZIONE: effetto collaterale quando sorgenti cambiano ---
-  // Azioni sono fire-and-forget: async ok, risultati → nuovi fatto()
   azione(
     id: string,
     sorgenti: string[],
@@ -156,7 +252,7 @@ export class GrafoPTI {
     const nodo: Nodo = {
       id,
       tipo: 'azione',
-      valore: 0,             // contatore esecuzioni
+      valore: 0,
       livello: maxLivello,
       sorgenti,
       salti: [],
@@ -175,6 +271,7 @@ export class GrafoPTI {
     sorgenti: string[],
     predicato: (s: Map<string, unknown>) => boolean,
     messaggio: string,
+    bloccante = false,
   ): void {
     let maxLivello = 0;
     for (const sId of sorgenti) {
@@ -185,12 +282,13 @@ export class GrafoPTI {
     const nodo: Nodo = {
       id,
       tipo: 'assert',
-      valore: true,           // ultimo risultato check
+      valore: true,
       livello: maxLivello,
       sorgenti,
       salti: [],
       predicato,
       messaggioAssert: messaggio,
+      bloccante,
       accessCount: 0,
     };
 
@@ -198,7 +296,6 @@ export class GrafoPTI {
     this.dipendenti.set(id, new Set());
     this.registraDipendenze(id, sorgenti);
 
-    // Check iniziale
     const valori = this.raccogliSorgenti(sorgenti);
     nodo.valore = predicato(valori);
   }
@@ -226,12 +323,12 @@ export class GrafoPTI {
     return nodo.valore;
   }
 
-  // --- NODO: accesso diretto al nodo ---
+  // --- NODO: accesso diretto ---
   nodo(id: string): Nodo | undefined {
     return this.nodi.get(id);
   }
 
-  // --- Violazioni assert ---
+  // --- Violazioni ---
   getViolations(): AssertViolation[] {
     return [...this.violations];
   }
@@ -242,98 +339,104 @@ export class GrafoPTI {
 
   // ==================== PROPAGAZIONE ====================
 
-  private propaga(sorgenteId: string, delta: Delta): void {
+  /**
+   * Propaga delta dal nodo sorgente a tutti i dipendenti + salti.
+   * Ritorna true se un assert bloccante ha fermato la propagazione.
+   */
+  private propaga(sorgenteId: string, delta: Delta): boolean {
     this.propagando = true;
+    let bloccato = false;
 
     try {
       const coda: Array<{ id: string; delta: Delta }> = [];
 
-      // Raccogli dipendenti diretti
-      const diretti = this.dipendenti.get(sorgenteId);
-      if (diretti) {
-        for (const dId of diretti) {
-          coda.push({ id: dId, delta });
-        }
-      }
+      // Raccogli dipendenti diretti + dipendenti dei salti (unificato)
+      this.raccogliTuttiDipendenti(sorgenteId, delta, coda);
+      this.ordinaCoda(coda);
 
-      // Ordina per livello topologico
-      coda.sort((a, b) => {
-        const na = this.nodi.get(a.id);
-        const nb = this.nodi.get(b.id);
-        return (na?.livello ?? 0) - (nb?.livello ?? 0);
-      });
-
-      // Propaga in ordine topologico
       const visitati = new Set<string>();
       for (let i = 0; i < coda.length; i++) {
         const item = coda[i];
         if (visitati.has(item.id)) continue;
         visitati.add(item.id);
 
+        if (bloccato) break;
+
         const nodo = this.nodi.get(item.id);
         if (!nodo) continue;
 
-        // Dispatch per tipo
         switch (nodo.tipo) {
           case 'derivato':
             this.propagaDerivato(nodo, item.delta, coda, visitati);
             break;
-          case 'azione':
-            this.eseguiAzione(nodo, item.delta);
-            break;
           case 'assert':
-            this.verificaAssert(nodo);
+            bloccato = this.verificaAssert(nodo);
             break;
-        }
-      }
-
-      // SALTI: dopo propagazione gerarchica, i salti cross-gerarchia
-      // propagano il delta ai nodi destinazione (triggerer i loro dipendenti)
-      const nodoSorgente = this.nodi.get(sorgenteId);
-      if (nodoSorgente?.salti.length) {
-        for (const saltoId of nodoSorgente.salti) {
-          // Se il salto punta a un nodo esistente, propaga ai suoi dipendenti
-          const saltoDest = this.nodi.get(saltoId);
-          if (saltoDest) {
-            const saltoDiretti = this.dipendenti.get(saltoId);
-            if (saltoDiretti) {
-              for (const dId of saltoDiretti) {
-                if (!visitati.has(dId)) {
-                  const depNodo = this.nodi.get(dId);
-                  if (depNodo) {
-                    switch (depNodo.tipo) {
-                      case 'derivato':
-                        this.propagaDerivato(depNodo, delta, coda, visitati);
-                        break;
-                      case 'azione':
-                        this.eseguiAzione(depNodo, delta);
-                        break;
-                      case 'assert':
-                        this.verificaAssert(depNodo);
-                        break;
-                    }
-                  }
-                }
-              }
+          case 'azione':
+            if (!this.simulando) {
+              this.eseguiAzione(nodo, item.delta);
             }
-          }
-          // Emetti evento per listeners esterni
-          this.emettiEvento(saltoId, nodoSorgente, delta);
+            break;
         }
       }
     } finally {
       this.propagando = false;
     }
 
-    // Processa coda differita (fatto() chiamati durante propagazione)
-    this.processaCodaDifferita();
+    if (!bloccato) {
+      this.processaCodaDifferita();
+    } else {
+      this.codaDifferita = [];
+    }
+
+    return bloccato;
+  }
+
+  /**
+   * Raccogli dipendenti diretti + dipendenti raggiungibili via salti.
+   */
+  private raccogliTuttiDipendenti(
+    nodoId: string,
+    delta: Delta,
+    coda: Array<{ id: string; delta: Delta }>,
+  ): void {
+    const diretti = this.dipendenti.get(nodoId);
+    if (diretti) {
+      for (const dId of diretti) {
+        coda.push({ id: dId, delta });
+      }
+    }
+
+    const nodo = this.nodi.get(nodoId);
+    if (nodo?.salti.length) {
+      for (const saltoId of nodo.salti) {
+        this.emettiEvento(saltoId, nodo, delta);
+        const saltoDip = this.dipendenti.get(saltoId);
+        if (saltoDip) {
+          for (const dId of saltoDip) {
+            coda.push({ id: dId, delta });
+          }
+        }
+      }
+    }
+  }
+
+  /** Ordina coda: livello ASC, poi derivato < assert < azione */
+  private ordinaCoda(coda: Array<{ id: string; delta: Delta }>): void {
+    coda.sort((a, b) => {
+      const na = this.nodi.get(a.id);
+      const nb = this.nodi.get(b.id);
+      const livDiff = (na?.livello ?? 0) - (nb?.livello ?? 0);
+      if (livDiff !== 0) return livDiff;
+      return (TIPO_ORDINE[na?.tipo ?? 'fatto'] ?? 0) - (TIPO_ORDINE[nb?.tipo ?? 'fatto'] ?? 0);
+    });
   }
 
   private propagaDerivato(
     nodo: Nodo,
     delta: Delta,
     coda: Array<{ id: string; delta: Delta }>,
-    visitati: Set<string>,
+    _visitati: Set<string>,
   ): void {
     if (!nodo.regola) return;
 
@@ -342,44 +445,19 @@ export class GrafoPTI {
     const dopo = nodo.regola(valoriSorgenti, delta);
 
     if (prima !== dopo) {
-      const nuovoDelta: DeltaValore = { prima, dopo };
+      const nuovoDelta = computaDelta(prima, dopo);
       nodo.valore = dopo;
       nodo.ultimoDelta = nuovoDelta;
       nodo.accessCount++;
 
-      // Notifica listeners
       this.emettiEvento(nodo.id, nodo, nuovoDelta);
+      this.registraLog(nodo.id, nuovoDelta, this.causaCorrente);
 
-      // Propaga ai dipendenti
-      const subDiretti = this.dipendenti.get(nodo.id);
-      if (subDiretti) {
-        for (const subId of subDiretti) {
-          if (!visitati.has(subId)) {
-            coda.push({ id: subId, delta: nuovoDelta });
-          }
-        }
-        // Re-sort per livello
-        coda.sort((a, b) => {
-          const na = this.nodi.get(a.id);
-          const nb = this.nodi.get(b.id);
-          return (na?.livello ?? 0) - (nb?.livello ?? 0);
-        });
-      }
+      const primaLen = coda.length;
+      this.raccogliTuttiDipendenti(nodo.id, nuovoDelta, coda);
 
-      // Salti del derivato
-      if (nodo.salti.length) {
-        for (const saltoId of nodo.salti) {
-          this.emettiEvento(saltoId, nodo, nuovoDelta);
-          // Trigger dipendenti del salto destination
-          const saltoDiretti = this.dipendenti.get(saltoId);
-          if (saltoDiretti) {
-            for (const dId of saltoDiretti) {
-              if (!visitati.has(dId)) {
-                coda.push({ id: dId, delta: nuovoDelta });
-              }
-            }
-          }
-        }
+      if (coda.length > primaLen) {
+        this.ordinaCoda(coda);
       }
     }
   }
@@ -391,48 +469,56 @@ export class GrafoPTI {
     nodo.valore = (nodo.valore as number) + 1;
     nodo.accessCount++;
 
-    // Fire-and-forget: async effects schedule their work,
-    // completamento → nuovi fatto() che ri-propagano
     try {
       const result = nodo.effetto(valoriSorgenti, delta);
       if (result instanceof Promise) {
         result.catch((err) => {
           this.emettiEvento(`${nodo.id}:error`, nodo, {
+            tipo: 'valore',
             prima: null,
             dopo: err instanceof Error ? err.message : String(err),
-          } as DeltaValore);
+          });
         });
       }
     } catch (err) {
       this.emettiEvento(`${nodo.id}:error`, nodo, {
+        tipo: 'valore',
         prima: null,
-        dopo: err instanceof Error ? (err as Error).message : String(err),
-      } as DeltaValore);
+        dopo: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
-  private verificaAssert(nodo: Nodo): void {
-    if (!nodo.predicato) return;
+  /**
+   * Verifica un assert. Ritorna true se BLOCCANTE e fallito.
+   */
+  private verificaAssert(nodo: Nodo): boolean {
+    if (!nodo.predicato) return false;
 
     const valoriSorgenti = this.raccogliSorgenti(nodo.sorgenti);
     const ok = nodo.predicato(valoriSorgenti);
     const prima = nodo.valore;
     nodo.valore = ok;
 
-    if (!ok && prima !== ok) {
+    if (!ok) {
       const violation: AssertViolation = {
         assertId: nodo.id,
         messaggio: nodo.messaggioAssert ?? `Assert failed: ${nodo.id}`,
         sorgenti: valoriSorgenti,
         timestamp: Date.now(),
+        bloccato: nodo.bloccante ?? false,
       };
       this.violations.push(violation);
       if (this.onViolation) this.onViolation(violation);
-      this.emettiEvento(nodo.id, nodo, { prima, dopo: ok } as DeltaValore);
+      if (prima !== ok) {
+        this.emettiEvento(nodo.id, nodo, { tipo: 'valore', prima, dopo: ok });
+      }
+      return nodo.bloccante ?? false;
     }
+
+    return false;
   }
 
-  // --- Processa fatto() accodati durante propagazione ---
   private processaCodaDifferita(): void {
     const MAX_ITERATIONS = 100;
     const seen = new Set<string>();
@@ -444,7 +530,7 @@ export class GrafoPTI {
       this.codaDifferita = [];
       for (const { id, valore } of batch) {
         const key = `${id}:${JSON.stringify(valore)}`;
-        if (seen.has(key)) continue; // ciclo rilevato — skip
+        if (seen.has(key)) continue;
         seen.add(key);
         this.fatto(id, valore);
       }
@@ -452,19 +538,119 @@ export class GrafoPTI {
 
     if (iterations >= MAX_ITERATIONS) {
       console.error(`[PTI] processaCodaDifferita: max ${MAX_ITERATIONS} iterazioni — possibile ciclo`);
-      this.codaDifferita = []; // drain per non bloccare
+      this.codaDifferita = [];
+    }
+  }
+
+  // ==================== CAUSAL TRACING ====================
+
+  /**
+   * ? causa(id) — Cosa ha causato il valore corrente di questo nodo?
+   * Ritorna l'ultimo delta log entry che ha modificato il nodo.
+   */
+  causa(id: string): DeltaLogEntry | undefined {
+    for (let i = this.deltaLog.length - 1; i >= 0; i--) {
+      if (this.deltaLog[i].nodoId === id) return this.deltaLog[i];
+    }
+    return undefined;
+  }
+
+  /**
+   * ? catena(id) — Catena causale completa: dal nodo risali alle sorgenti.
+   * Ritorna [nodo ← sorgente ← ... ← fatto_originale].
+   */
+  catena(id: string): Array<{ id: string; valore: unknown; delta?: Delta }> {
+    const chain: Array<{ id: string; valore: unknown; delta?: Delta }> = [];
+    const visited = new Set<string>();
+
+    const walk = (nodoId: string) => {
+      if (visited.has(nodoId)) return;
+      visited.add(nodoId);
+
+      const nodo = this.nodi.get(nodoId);
+      if (!nodo) return;
+
+      chain.push({ id: nodoId, valore: nodo.valore, delta: nodo.ultimoDelta });
+
+      for (const sId of nodo.sorgenti) {
+        walk(sId);
+      }
+    };
+
+    walk(id);
+    return chain;
+  }
+
+  /**
+   * ? simula(id, valore) — Simula una modifica senza applicarla.
+   * Ritorna i nodi affetti e i delta previsti.
+   */
+  simula(id: string, valore: unknown): {
+    affetti: string[];
+    delta: Map<string, { prima: unknown; dopo: unknown }>;
+    assertFalliti: string[];
+  } {
+    const snap = this.snapshot();
+    const violazionePrima = this.violations.length;
+
+    this.simulando = true;
+    try {
+      const nodo = this.nodi.get(id);
+      if (!nodo) return { affetti: [], delta: new Map(), assertFalliti: [] };
+
+      const delta = computaDelta(nodo.valore, valore);
+      nodo.valore = valore;
+      nodo.ultimoDelta = delta;
+      this.causaCorrente = id;
+      this.propaga(id, delta);
+    } finally {
+      this.simulando = false;
+    }
+
+    const affetti: string[] = [];
+    const deltaMap = new Map<string, { prima: unknown; dopo: unknown }>();
+    for (const [nId, val] of snap) {
+      const nodo = this.nodi.get(nId);
+      if (nodo && nodo.valore !== val) {
+        affetti.push(nId);
+        deltaMap.set(nId, { prima: val, dopo: nodo.valore });
+      }
+    }
+
+    const assertFalliti = this.violations
+      .slice(violazionePrima)
+      .map(v => v.assertId);
+
+    // Rollback
+    this.rollback(snap);
+    this.violations.splice(violazionePrima);
+    this.codaDifferita = [];
+
+    return { affetti, delta: deltaMap, assertFalliti };
+  }
+
+  // ==================== SNAPSHOT / ROLLBACK ====================
+
+  private snapshot(): Map<string, unknown> {
+    const snap = new Map<string, unknown>();
+    for (const [id, nodo] of this.nodi) {
+      snap.set(id, nodo.valore);
+    }
+    return snap;
+  }
+
+  private rollback(snap: Map<string, unknown>): void {
+    for (const [id, val] of snap) {
+      const nodo = this.nodi.get(id);
+      if (nodo) nodo.valore = val;
     }
   }
 
   // ==================== UTILITY ====================
 
-  /** DFS cycle detection: verifica se aggiungere id con queste sorgenti crea un ciclo */
   private hasCycle(newId: string, newSorgenti: string[]): boolean {
-    // Se newId è tra le sorgenti → self-loop
     if (newSorgenti.includes(newId)) return true;
 
-    // DFS: da newId, segui i dipendenti (nodi che dipendono da newId).
-    // Se raggiungiamo una delle newSorgenti → ciclo
     const target = new Set(newSorgenti);
     const visited = new Set<string>();
 
@@ -501,7 +687,17 @@ export class GrafoPTI {
     }
   }
 
-  // --- LISTENER: osserva cambiamenti ---
+  private registraLog(nodoId: string, delta: Delta, causa: string): void {
+    if (this.simulando) return;
+
+    this.deltaLog.push({ timestamp: Date.now(), nodoId, delta, causa });
+
+    if (this.deltaLog.length > this.maxLogSize) {
+      this.deltaLog.splice(0, this.deltaLog.length - this.maxLogSize);
+    }
+  }
+
+  // --- LISTENER ---
   onDelta(id: string, cb: (nodo: Nodo, delta: Delta) => void): void {
     if (!this.listeners.has(id)) this.listeners.set(id, []);
     this.listeners.get(id)!.push(cb);
@@ -514,15 +710,16 @@ export class GrafoPTI {
     }
   }
 
-  // --- TRACE: debug PTI ---
+  // --- TRACE ---
   trace(id: string): {
     nodo: Nodo | undefined;
     sorgenti: Array<{ id: string; valore: unknown }>;
     dipendenti: string[];
     salti: string[];
+    ultimoCausa: DeltaLogEntry | undefined;
   } {
     const nodo = this.nodi.get(id);
-    if (!nodo) return { nodo: undefined, sorgenti: [], dipendenti: [], salti: [] };
+    if (!nodo) return { nodo: undefined, sorgenti: [], dipendenti: [], salti: [], ultimoCausa: undefined };
 
     return {
       nodo,
@@ -532,7 +729,110 @@ export class GrafoPTI {
       })),
       dipendenti: [...(this.dipendenti.get(id) ?? [])],
       salti: nodo.salti,
+      ultimoCausa: this.causa(id),
     };
+  }
+
+  // ==================== WILDCARD QUERY ====================
+
+  /**
+   * query('tavolo.*')        → [tavolo.1, tavolo.2, ...]
+   * query('tavolo.*.stato')  → [tavolo.1.stato, tavolo.2.stato, ...]
+   * query('*.running')       → [agents.running, ...]
+   *
+   * Supporta * come segmento wildcard (non ricorsivo).
+   */
+  query(pattern: string): Nodo[] {
+    const regex = patternToRegex(pattern);
+    const risultato: Nodo[] = [];
+    for (const nodo of this.nodi.values()) {
+      if (regex.test(nodo.id)) risultato.push(nodo);
+    }
+    return risultato;
+  }
+
+  /** Versione che ritorna solo gli ID */
+  queryIds(pattern: string): string[] {
+    return this.query(pattern).map(n => n.id);
+  }
+
+  // ==================== SERIALIZE / HYDRATE ====================
+
+  /**
+   * Serializza lo stato completo del grafo.
+   * Esclude regole/effetti/predicati (funzioni → non serializzabili).
+   * Per hydrate serve ri-registrare le funzioni.
+   */
+  serialize(): GrafoSnapshot {
+    const nodi: NodoSnap[] = [];
+    for (const n of this.nodi.values()) {
+      nodi.push({
+        id: n.id,
+        tipo: n.tipo,
+        valore: n.valore,
+        livello: n.livello,
+        sorgenti: n.sorgenti,
+        salti: n.salti,
+        bloccante: n.bloccante,
+        messaggioAssert: n.messaggioAssert,
+        accessCount: n.accessCount,
+      });
+    }
+    return {
+      nodi,
+      log: [...this.deltaLog],
+      violations: this.violations.map(v => ({
+        ...v,
+        sorgenti: Object.fromEntries(v.sorgenti),
+      })),
+      timestamp: Date.now(),
+    };
+  }
+
+  /**
+   * Ripristina i fatti da uno snapshot.
+   * Derivati/azioni/assert devono essere ri-registrati dal codice
+   * (le funzioni non sono serializzabili).
+   * Hydrate setta solo i valori dei fatti già registrati.
+   */
+  hydrate(snapshot: GrafoSnapshot): { ripristinati: number; mancanti: string[] } {
+    let ripristinati = 0;
+    const mancanti: string[] = [];
+
+    for (const snap of snapshot.nodi) {
+      if (snap.tipo === 'fatto') {
+        if (this.nodi.has(snap.id)) {
+          const nodo = this.nodi.get(snap.id)!;
+          nodo.valore = snap.valore;
+          nodo.accessCount = snap.accessCount;
+          ripristinati++;
+        } else {
+          // Fatto non ancora registrato → crealo
+          this.fatto(snap.id, snap.valore);
+          ripristinati++;
+        }
+      } else {
+        // Derivato/azione/assert: verifica che esista (registrato dal codice)
+        if (!this.nodi.has(snap.id)) {
+          mancanti.push(snap.id);
+        } else {
+          // Ripristina valore materializzato
+          const nodo = this.nodi.get(snap.id)!;
+          nodo.valore = snap.valore;
+          nodo.accessCount = snap.accessCount;
+          ripristinati++;
+        }
+      }
+    }
+
+    // Ripristina salti
+    for (const snap of snapshot.nodi) {
+      if (snap.salti.length > 0 && this.nodi.has(snap.id)) {
+        this.nodi.get(snap.id)!.salti = [...snap.salti];
+      }
+    }
+
+    return { ripristinati, mancanti };
   }
 
   // --- GRAFO COMPLETO: per dashboard ---
@@ -546,8 +846,11 @@ export class GrafoPTI {
     }));
   }
 
-  // --- STATS: per debug ---
-  stats(): { nodi: number; fatti: number; derivati: number; azioni: number; assert: number; violations: number } {
+  // --- STATS ---
+  stats(): {
+    nodi: number; fatti: number; derivati: number; azioni: number; assert: number;
+    violations: number; logSize: number;
+  } {
     let fatti = 0, derivati = 0, azioni = 0, asserts = 0;
     for (const n of this.nodi.values()) {
       switch (n.tipo) {
@@ -557,6 +860,47 @@ export class GrafoPTI {
         case 'assert': asserts++; break;
       }
     }
-    return { nodi: this.nodi.size, fatti, derivati, azioni, assert: asserts, violations: this.violations.length };
+    return {
+      nodi: this.nodi.size, fatti, derivati, azioni,
+      assert: asserts, violations: this.violations.length,
+      logSize: this.deltaLog.length,
+    };
   }
+}
+
+// ==================== WILDCARD HELPERS ====================
+
+/**
+ * Converte pattern PTI in regex.
+ * 'tavolo.*'       → /^tavolo\.[^.]+$/
+ * 'tavolo.*.stato' → /^tavolo\.[^.]+\.stato$/
+ * '*.running'      → /^[^.]+\.running$/
+ */
+function patternToRegex(pattern: string): RegExp {
+  const escaped = pattern
+    .split('.')
+    .map(seg => seg === '*' ? '[^.]+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('\\.');
+  return new RegExp(`^${escaped}$`);
+}
+
+// ==================== SNAPSHOT TYPES ====================
+
+export interface NodoSnap {
+  id: string;
+  tipo: NodoTipo;
+  valore: unknown;
+  livello: number;
+  sorgenti: string[];
+  salti: string[];
+  bloccante?: boolean;
+  messaggioAssert?: string;
+  accessCount: number;
+}
+
+export interface GrafoSnapshot {
+  nodi: NodoSnap[];
+  log: DeltaLogEntry[];
+  violations: Array<Record<string, unknown>>;
+  timestamp: number;
 }
