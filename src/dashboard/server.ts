@@ -763,6 +763,7 @@ function dashboardHTML(): string {
   /* ── AGENT THINKING GLOW ── */
   .main.thinking {
     position: relative;
+    border-left: 2px solid rgba(196, 164, 120, 0.6);
   }
   .main.thinking::before {
     content: '';
@@ -770,17 +771,34 @@ function dashboardHTML(): string {
     inset: 0;
     pointer-events: none;
     z-index: 100;
-    border-radius: 0;
-    box-shadow: inset 0 0 80px -20px rgba(196, 164, 120, 0.25),
-                inset 0 0 30px -10px rgba(196, 164, 120, 0.15);
-    animation: agent-glow 2.5s ease-in-out infinite;
+    background: linear-gradient(180deg,
+      rgba(196, 164, 120, 0.08) 0%,
+      transparent 30%,
+      transparent 70%,
+      rgba(196, 164, 120, 0.08) 100%);
+    box-shadow: inset 0 0 120px -10px rgba(196, 164, 120, 0.15),
+                inset 0 0 40px -5px rgba(196, 164, 120, 0.1);
+    animation: agent-glow 2s ease-in-out infinite;
+  }
+  .main.thinking::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -2px;
+    width: 2px; height: 100%;
+    background: rgba(196, 164, 120, 0.8);
+    box-shadow: 0 0 15px 3px rgba(196, 164, 120, 0.4),
+                0 0 40px 8px rgba(196, 164, 120, 0.15);
+    animation: agent-glow 2s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 101;
   }
   @keyframes agent-glow {
-    0%, 100% { opacity: 0.4; }
+    0%, 100% { opacity: 0.5; }
     50% { opacity: 1; }
   }
   .main.thinking .cmd-area {
-    box-shadow: 0 0 20px -5px rgba(196, 164, 120, 0.3);
+    box-shadow: 0 0 25px -5px rgba(196, 164, 120, 0.25);
+    border-color: rgba(196, 164, 120, 0.4);
   }
 
   /* ── TERMINAL PANEL ── */
