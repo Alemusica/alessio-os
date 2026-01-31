@@ -1,26 +1,31 @@
 /**
- * PTI Core Runtime — Grafo + Delta Propagation
+ * PTI Core Runtime v4 — Grafo Reattivo Completo
  *
  * FATTI:     nodi base, valore assegnato con =
  * DERIVATI:  nodi materializzati, regola con :=
- * SALTI:     connessioni dichiarate con →
+ * AZIONI:    nodi side-effect, eseguiti quando sorgenti cambiano
+ * SALTI:     connessioni dichiarate con → (cross-gerarchia)
+ * ASSERT:    vincoli invarianti, controllati durante propagazione
  * DELTA:     propagazione incrementale, mai ricalcolo totale
+ *
+ * Il grafo è il control flow. Niente polling, niente imperativi.
+ * fatto() → propaga derivati → trigger azioni → nuovi fatti → ...
  */
 
 // ==================== TIPI DELTA ====================
 
 export type DeltaValore = { prima: unknown; dopo: unknown };
 export type DeltaLista = {
-  aggiungi?: unknown[];
-  rimuovi?: unknown[];
-  modifica?: Array<{ idx: number; prima: unknown; dopo: unknown }>;
+  aggiunti?: unknown[];
+  rimossi?: unknown[];
+  modifiche?: Array<{ idx: number; prima: unknown; dopo: unknown }>;
 };
 export type DeltaMappa = { set?: Record<string, unknown>; unset?: string[] };
 export type Delta = DeltaValore | DeltaLista | DeltaMappa;
 
 // ==================== NODO ====================
 
-export type NodoTipo = 'fatto' | 'derivato' | 'azione';
+export type NodoTipo = 'fatto' | 'derivato' | 'azione' | 'assert';
 
 export interface Nodo {
   id: string;
@@ -30,21 +35,48 @@ export interface Nodo {
   sorgenti: string[];                 // nodi da cui dipendo
   salti: string[];                    // → [destinazioni]
   regola?: (sorgenti: Map<string, unknown>, delta: Delta) => unknown;
+  effetto?: (sorgenti: Map<string, unknown>, delta: Delta) => void | Promise<void>;
+  predicato?: (sorgenti: Map<string, unknown>) => boolean;
+  messaggioAssert?: string;
   ultimoDelta?: Delta;
   accessCount: number;                // per biocache
 }
 
-// ==================== GRAFO PTI ====================
+// ==================== ASSERT VIOLATION ====================
+
+export interface AssertViolation {
+  assertId: string;
+  messaggio: string;
+  sorgenti: Map<string, unknown>;
+  timestamp: number;
+}
+
+// ==================== GRAFO PTI v4 ====================
 
 export class GrafoPTI {
   private nodi: Map<string, Nodo> = new Map();
   private dipendenti: Map<string, Set<string>> = new Map();  // inverso di sorgenti
   private listeners: Map<string, Array<(nodo: Nodo, delta: Delta) => void>> = new Map();
+  private propagando = false;   // guard reentrant propagation
+  private codaDifferita: Array<{ id: string; valore: unknown }> = [];
+  private violations: AssertViolation[] = [];
+  private onViolation?: (v: AssertViolation) => void;
+
+  constructor(opts?: { onViolation?: (v: AssertViolation) => void }) {
+    this.onViolation = opts?.onViolation;
+  }
 
   // --- FATTO: soggetto.attributo = valore ---
   fatto(id: string, valore: unknown): void {
+    // Se stiamo propagando, accoda (evita ricorsione)
+    if (this.propagando) {
+      this.codaDifferita.push({ id, valore });
+      return;
+    }
+
     if (this.nodi.has(id)) {
       const nodo = this.nodi.get(id)!;
+      if (nodo.valore === valore) return;  // no-op se uguale
       const delta: DeltaValore = { prima: nodo.valore, dopo: valore };
       nodo.valore = valore;
       nodo.ultimoDelta = delta;
@@ -64,16 +96,19 @@ export class GrafoPTI {
     };
     this.nodi.set(id, nodo);
     this.dipendenti.set(id, new Set());
+
+    // Propaga anche la prima volta (per triggerer derivati/azioni gia' registrati)
+    const delta: DeltaValore = { prima: undefined, dopo: valore };
+    nodo.ultimoDelta = delta;
+    this.propaga(id, delta);
   }
 
-  // --- DERIVATO: soggetto := regola → [salti] ---
+  // --- DERIVATO: soggetto := regola(sorgenti) ---
   derivato(
     id: string,
     sorgenti: string[],
     regola: (s: Map<string, unknown>, delta: Delta) => unknown,
-    salti: string[] = [],
   ): void {
-    // Calcola livello: max(sorgenti.livello) + 1
     let maxLivello = 0;
     for (const sId of sorgenti) {
       const s = this.nodi.get(sId);
@@ -81,12 +116,7 @@ export class GrafoPTI {
     }
 
     // Materializza valore iniziale
-    const valoriSorgenti = new Map<string, unknown>();
-    for (const sId of sorgenti) {
-      const s = this.nodi.get(sId);
-      if (s) valoriSorgenti.set(sId, s.valore);
-    }
-
+    const valoriSorgenti = this.raccogliSorgenti(sorgenti);
     const valoreIniziale = regola(valoriSorgenti, { prima: undefined, dopo: undefined });
 
     const nodo: Nodo = {
@@ -95,22 +125,80 @@ export class GrafoPTI {
       valore: valoreIniziale,
       livello: maxLivello,
       sorgenti,
-      salti,
+      salti: [],
       regola,
       accessCount: 0,
     };
 
     this.nodi.set(id, nodo);
     this.dipendenti.set(id, new Set());
-
-    // Registra dipendenza inversa
-    for (const sId of sorgenti) {
-      if (!this.dipendenti.has(sId)) this.dipendenti.set(sId, new Set());
-      this.dipendenti.get(sId)!.add(id);
-    }
+    this.registraDipendenze(id, sorgenti);
   }
 
-  // --- SALTO: soggetto.attributo → [destinazioni] ---
+  // --- AZIONE: effetto collaterale quando sorgenti cambiano ---
+  // Azioni sono fire-and-forget: async ok, risultati → nuovi fatto()
+  azione(
+    id: string,
+    sorgenti: string[],
+    effetto: (s: Map<string, unknown>, delta: Delta) => void | Promise<void>,
+  ): void {
+    let maxLivello = 0;
+    for (const sId of sorgenti) {
+      const s = this.nodi.get(sId);
+      if (s && s.livello >= maxLivello) maxLivello = s.livello + 1;
+    }
+
+    const nodo: Nodo = {
+      id,
+      tipo: 'azione',
+      valore: 0,             // contatore esecuzioni
+      livello: maxLivello,
+      sorgenti,
+      salti: [],
+      effetto,
+      accessCount: 0,
+    };
+
+    this.nodi.set(id, nodo);
+    this.dipendenti.set(id, new Set());
+    this.registraDipendenze(id, sorgenti);
+  }
+
+  // --- ASSERT: vincolo invariante ---
+  assert(
+    id: string,
+    sorgenti: string[],
+    predicato: (s: Map<string, unknown>) => boolean,
+    messaggio: string,
+  ): void {
+    let maxLivello = 0;
+    for (const sId of sorgenti) {
+      const s = this.nodi.get(sId);
+      if (s && s.livello >= maxLivello) maxLivello = s.livello + 1;
+    }
+
+    const nodo: Nodo = {
+      id,
+      tipo: 'assert',
+      valore: true,           // ultimo risultato check
+      livello: maxLivello,
+      sorgenti,
+      salti: [],
+      predicato,
+      messaggioAssert: messaggio,
+      accessCount: 0,
+    };
+
+    this.nodi.set(id, nodo);
+    this.dipendenti.set(id, new Set());
+    this.registraDipendenze(id, sorgenti);
+
+    // Check iniziale
+    const valori = this.raccogliSorgenti(sorgenti);
+    nodo.valore = predicato(valori);
+  }
+
+  // --- SALTO: soggetto → [destinazioni] ---
   salto(sorgente: string, destinazioni: string[]): void {
     const nodo = this.nodi.get(sorgente);
     if (nodo) {
@@ -126,78 +214,238 @@ export class GrafoPTI {
     return nodo.valore;
   }
 
-  // --- PROPAGA: delta cascata in ordine topologico ---
+  // --- NODO: accesso diretto al nodo ---
+  nodo(id: string): Nodo | undefined {
+    return this.nodi.get(id);
+  }
+
+  // --- Violazioni assert ---
+  getViolations(): AssertViolation[] {
+    return [...this.violations];
+  }
+
+  clearViolations(): void {
+    this.violations = [];
+  }
+
+  // ==================== PROPAGAZIONE ====================
+
   private propaga(sorgenteId: string, delta: Delta): void {
-    const coda: Array<{ id: string; delta: Delta }> = [];
+    this.propagando = true;
 
-    // Raccogli dipendenti diretti
-    const diretti = this.dipendenti.get(sorgenteId);
-    if (diretti) {
-      for (const dId of diretti) {
-        coda.push({ id: dId, delta });
-      }
-    }
+    try {
+      const coda: Array<{ id: string; delta: Delta }> = [];
 
-    // Ordina per livello topologico (garanzia PTI)
-    coda.sort((a, b) => {
-      const na = this.nodi.get(a.id);
-      const nb = this.nodi.get(b.id);
-      return (na?.livello ?? 0) - (nb?.livello ?? 0);
-    });
-
-    // Propaga in ordine
-    const visitati = new Set<string>();
-    for (const item of coda) {
-      if (visitati.has(item.id)) continue;
-      visitati.add(item.id);
-
-      const nodo = this.nodi.get(item.id);
-      if (!nodo || !nodo.regola) continue;
-
-      // Raccogli valori sorgenti attuali
-      const valoriSorgenti = new Map<string, unknown>();
-      for (const sId of nodo.sorgenti) {
-        const s = this.nodi.get(sId);
-        if (s) valoriSorgenti.set(sId, s.valore);
+      // Raccogli dipendenti diretti
+      const diretti = this.dipendenti.get(sorgenteId);
+      if (diretti) {
+        for (const dId of diretti) {
+          coda.push({ id: dId, delta });
+        }
       }
 
-      // Calcola nuovo valore via regola + delta
-      const prima = nodo.valore;
-      const dopo = nodo.regola(valoriSorgenti, item.delta);
+      // Ordina per livello topologico
+      coda.sort((a, b) => {
+        const na = this.nodi.get(a.id);
+        const nb = this.nodi.get(b.id);
+        return (na?.livello ?? 0) - (nb?.livello ?? 0);
+      });
 
-      if (prima !== dopo) {
-        const nuovoDelta: DeltaValore = { prima, dopo };
-        nodo.valore = dopo;
-        nodo.ultimoDelta = nuovoDelta;
-        nodo.accessCount++;
+      // Propaga in ordine topologico
+      const visitati = new Set<string>();
+      for (let i = 0; i < coda.length; i++) {
+        const item = coda[i];
+        if (visitati.has(item.id)) continue;
+        visitati.add(item.id);
 
-        // Notifica listeners
-        this.emettiEvento(item.id, nodo, nuovoDelta);
+        const nodo = this.nodi.get(item.id);
+        if (!nodo) continue;
 
-        // Propaga ricorsivamente ai dipendenti di questo nodo
-        const subDiretti = this.dipendenti.get(item.id);
-        if (subDiretti) {
-          for (const subId of subDiretti) {
-            if (!visitati.has(subId)) {
-              coda.push({ id: subId, delta: nuovoDelta });
+        // Dispatch per tipo
+        switch (nodo.tipo) {
+          case 'derivato':
+            this.propagaDerivato(nodo, item.delta, coda, visitati);
+            break;
+          case 'azione':
+            this.eseguiAzione(nodo, item.delta);
+            break;
+          case 'assert':
+            this.verificaAssert(nodo);
+            break;
+        }
+      }
+
+      // SALTI: dopo propagazione gerarchica, i salti cross-gerarchia
+      // propagano il delta ai nodi destinazione (triggerer i loro dipendenti)
+      const nodoSorgente = this.nodi.get(sorgenteId);
+      if (nodoSorgente?.salti.length) {
+        for (const saltoId of nodoSorgente.salti) {
+          // Se il salto punta a un nodo esistente, propaga ai suoi dipendenti
+          const saltoDest = this.nodi.get(saltoId);
+          if (saltoDest) {
+            const saltoDiretti = this.dipendenti.get(saltoId);
+            if (saltoDiretti) {
+              for (const dId of saltoDiretti) {
+                if (!visitati.has(dId)) {
+                  const depNodo = this.nodi.get(dId);
+                  if (depNodo) {
+                    switch (depNodo.tipo) {
+                      case 'derivato':
+                        this.propagaDerivato(depNodo, delta, coda, visitati);
+                        break;
+                      case 'azione':
+                        this.eseguiAzione(depNodo, delta);
+                        break;
+                      case 'assert':
+                        this.verificaAssert(depNodo);
+                        break;
+                    }
+                  }
+                }
+              }
             }
           }
-          // Riordina
-          coda.sort((a, b) => {
-            const na = this.nodi.get(a.id);
-            const nb = this.nodi.get(b.id);
-            return (na?.livello ?? 0) - (nb?.livello ?? 0);
-          });
+          // Emetti evento per listeners esterni
+          this.emettiEvento(saltoId, nodoSorgente, delta);
+        }
+      }
+    } finally {
+      this.propagando = false;
+    }
+
+    // Processa coda differita (fatto() chiamati durante propagazione)
+    this.processaCodaDifferita();
+  }
+
+  private propagaDerivato(
+    nodo: Nodo,
+    delta: Delta,
+    coda: Array<{ id: string; delta: Delta }>,
+    visitati: Set<string>,
+  ): void {
+    if (!nodo.regola) return;
+
+    const valoriSorgenti = this.raccogliSorgenti(nodo.sorgenti);
+    const prima = nodo.valore;
+    const dopo = nodo.regola(valoriSorgenti, delta);
+
+    if (prima !== dopo) {
+      const nuovoDelta: DeltaValore = { prima, dopo };
+      nodo.valore = dopo;
+      nodo.ultimoDelta = nuovoDelta;
+      nodo.accessCount++;
+
+      // Notifica listeners
+      this.emettiEvento(nodo.id, nodo, nuovoDelta);
+
+      // Propaga ai dipendenti
+      const subDiretti = this.dipendenti.get(nodo.id);
+      if (subDiretti) {
+        for (const subId of subDiretti) {
+          if (!visitati.has(subId)) {
+            coda.push({ id: subId, delta: nuovoDelta });
+          }
+        }
+        // Re-sort per livello
+        coda.sort((a, b) => {
+          const na = this.nodi.get(a.id);
+          const nb = this.nodi.get(b.id);
+          return (na?.livello ?? 0) - (nb?.livello ?? 0);
+        });
+      }
+
+      // Salti del derivato
+      if (nodo.salti.length) {
+        for (const saltoId of nodo.salti) {
+          this.emettiEvento(saltoId, nodo, nuovoDelta);
+          // Trigger dipendenti del salto destination
+          const saltoDiretti = this.dipendenti.get(saltoId);
+          if (saltoDiretti) {
+            for (const dId of saltoDiretti) {
+              if (!visitati.has(dId)) {
+                coda.push({ id: dId, delta: nuovoDelta });
+              }
+            }
+          }
         }
       }
     }
+  }
 
-    // SALTI: dopo propagazione gerarchica
-    const nodoSorgente = this.nodi.get(sorgenteId);
-    if (nodoSorgente?.salti.length) {
-      for (const saltoId of nodoSorgente.salti) {
-        this.emettiEvento(saltoId, nodoSorgente, delta);
+  private eseguiAzione(nodo: Nodo, delta: Delta): void {
+    if (!nodo.effetto) return;
+
+    const valoriSorgenti = this.raccogliSorgenti(nodo.sorgenti);
+    nodo.valore = (nodo.valore as number) + 1;
+    nodo.accessCount++;
+
+    // Fire-and-forget: async effects schedule their work,
+    // completamento → nuovi fatto() che ri-propagano
+    try {
+      const result = nodo.effetto(valoriSorgenti, delta);
+      if (result instanceof Promise) {
+        result.catch((err) => {
+          this.emettiEvento(`${nodo.id}:error`, nodo, {
+            prima: null,
+            dopo: err instanceof Error ? err.message : String(err),
+          } as DeltaValore);
+        });
       }
+    } catch (err) {
+      this.emettiEvento(`${nodo.id}:error`, nodo, {
+        prima: null,
+        dopo: err instanceof Error ? (err as Error).message : String(err),
+      } as DeltaValore);
+    }
+  }
+
+  private verificaAssert(nodo: Nodo): void {
+    if (!nodo.predicato) return;
+
+    const valoriSorgenti = this.raccogliSorgenti(nodo.sorgenti);
+    const ok = nodo.predicato(valoriSorgenti);
+    const prima = nodo.valore;
+    nodo.valore = ok;
+
+    if (!ok && prima !== ok) {
+      const violation: AssertViolation = {
+        assertId: nodo.id,
+        messaggio: nodo.messaggioAssert ?? `Assert failed: ${nodo.id}`,
+        sorgenti: valoriSorgenti,
+        timestamp: Date.now(),
+      };
+      this.violations.push(violation);
+      if (this.onViolation) this.onViolation(violation);
+      this.emettiEvento(nodo.id, nodo, { prima, dopo: ok } as DeltaValore);
+    }
+  }
+
+  // --- Processa fatto() accodati durante propagazione ---
+  private processaCodaDifferita(): void {
+    while (this.codaDifferita.length > 0) {
+      const batch = [...this.codaDifferita];
+      this.codaDifferita = [];
+      for (const { id, valore } of batch) {
+        this.fatto(id, valore);
+      }
+    }
+  }
+
+  // ==================== UTILITY ====================
+
+  private raccogliSorgenti(sorgenti: string[]): Map<string, unknown> {
+    const m = new Map<string, unknown>();
+    for (const sId of sorgenti) {
+      const s = this.nodi.get(sId);
+      if (s) m.set(sId, s.valore);
+    }
+    return m;
+  }
+
+  private registraDipendenze(id: string, sorgenti: string[]): void {
+    for (const sId of sorgenti) {
+      if (!this.dipendenti.has(sId)) this.dipendenti.set(sId, new Set());
+      this.dipendenti.get(sId)!.add(id);
     }
   }
 
@@ -236,12 +484,27 @@ export class GrafoPTI {
   }
 
   // --- GRAFO COMPLETO: per dashboard ---
-  stato(): Array<{ id: string; tipo: NodoTipo; valore: unknown; livello: number }> {
+  stato(): Array<{ id: string; tipo: NodoTipo; valore: unknown; livello: number; salti: string[] }> {
     return [...this.nodi.values()].map((n) => ({
       id: n.id,
       tipo: n.tipo,
       valore: n.valore,
       livello: n.livello,
+      salti: n.salti,
     }));
+  }
+
+  // --- STATS: per debug ---
+  stats(): { nodi: number; fatti: number; derivati: number; azioni: number; assert: number; violations: number } {
+    let fatti = 0, derivati = 0, azioni = 0, asserts = 0;
+    for (const n of this.nodi.values()) {
+      switch (n.tipo) {
+        case 'fatto': fatti++; break;
+        case 'derivato': derivati++; break;
+        case 'azione': azioni++; break;
+        case 'assert': asserts++; break;
+      }
+    }
+    return { nodi: this.nodi.size, fatti, derivati, azioni, assert: asserts, violations: this.violations.length };
   }
 }

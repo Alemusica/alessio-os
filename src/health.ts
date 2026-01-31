@@ -14,7 +14,7 @@ async function main(): Promise<void> {
   if (surrealOk) {
     try {
       const res = await surqlQuery('fn::kb_stats_v4()');
-      const stats = res[0]?.result as Record<string, unknown>;
+      const stats = (res[0]?.result ?? {}) as unknown as Record<string, unknown>;
       console.log(`  Knowledge:   ${stats?.knowledge_count ?? '?'} items`);
       console.log(`  Papers:      ${stats?.paper_count ?? '?'}`);
       console.log(`  Experiences: ${stats?.experience_count ?? '?'}`);

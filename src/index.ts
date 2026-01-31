@@ -42,9 +42,9 @@ async function main(): Promise<void> {
   });
 
   const health = await orch.health();
-  console.log(`Orchestratore: ✓ sessione attiva`);
+  console.log(`Orchestratore PTI v4: ✓ sessione attiva`);
   console.log(`  Agenti: ${health.agents}`);
-  console.log(`  Task: ${JSON.stringify(health.tasks)}`);
+  console.log(`  PTI: ${JSON.stringify(health.pti)}`);
   console.log('');
 
   // Modalità interattiva o comando singolo
@@ -66,12 +66,9 @@ async function main(): Promise<void> {
     // Task mode: alessio-os --task "fixa il bug nel login"
     const taskText = args.slice(1).join(' ');
     console.log(`[TASK] "${taskText}"`);
-    const taskIds = await orch.handleInput({
-      type: 'text',
-      content: taskText,
-      project,
-    });
-    console.log(`[TASK] Creati ${taskIds.length} task: ${taskIds.join(', ')}`);
+    // PTI: setta fatti, il grafo fa il resto
+    orch.input(taskText, project);
+    console.log(`[TASK] Input inviato al grafo PTI — propagazione reattiva in corso`);
     return;
   }
 

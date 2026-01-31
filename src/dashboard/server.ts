@@ -115,7 +115,7 @@ async function searchChats(query: string): Promise<unknown[]> {
   return Array.isArray(result) ? result : [];
 }
 
-// --- API: command (dispatch through orchestrator worker) ---
+// --- API: command (PTI reactive — setta fatti, il grafo fa il resto) ---
 async function handleCommand(req: IncomingMessage): Promise<unknown> {
   const body = await readBody(req);
   const { text, project } = JSON.parse(body);
@@ -127,15 +127,16 @@ async function handleCommand(req: IncomingMessage): Promise<unknown> {
     throw new Error('Orchestrator not started');
   }
 
-  // Route through orchestrator to determine agents
+  // Preview route (per la UI)
   const route = orchestrator.route(text);
-  broadcast('log', { text: `[route] ${route.roles.join(', ')} — priority ${route.priority}`, cls: 'event' });
+  broadcast('log', { text: `[PTI] route → ${route.roles.join(', ')} — priority ${route.priority}`, cls: 'event' });
 
-  // Dispatch directly through worker (creates task, builds context, spawns claude)
-  const worker = orchestrator.getWorker();
-  const { agentId, taskId } = await worker.dispatchDirect(text, project || 'alessio-os');
+  // Setta i fatti nel grafo PTI → propagazione reattiva fa tutto
+  // input.text → derivato 'route' → azione 'act:route' → fatto 'queue.version'
+  //   → derivato 'can.dispatch' → azione 'act:dispatch' → spawn claude
+  orchestrator.input(text, project || 'alessio-os');
 
-  return { status: 'streaming', agentId, taskId, route: route.roles };
+  return { status: 'streaming', route: route.roles, pti: orchestrator.grafo.stats() };
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -2189,8 +2190,8 @@ export function startDashboard(): void {
     onLog: (text, cls) => broadcast('log', { text, cls }),
     onResponse: (text, taskId) => broadcast('response', { text, taskId }),
   });
-  orchestrator.start();
-  console.log('[Dashboard] Orchestrator + Worker avviati');
+  // No start() needed — PTI è reattivo, niente polling
+  console.log('[Dashboard] Orchestrator PTI v4 pronto (reattivo, zero polling)');
 
   const server = createServer((req, res) => {
     handleRequest(req, res).catch(() => {
