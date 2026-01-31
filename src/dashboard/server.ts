@@ -395,11 +395,11 @@ function dashboardHTML(): string {
     --rose-bg: #F9F0F0;
     --blue: #6B839E;
     --blue-bg: #F0F3F7;
-    --font: 'DM Sans', 'Helvetica Neue', -apple-system, sans-serif;
-    --mono: 'DM Mono', 'SF Mono', monospace;
+    --font: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --mono: 'DM Mono', 'SF Mono', 'Menlo', monospace;
     --phi: 1.618;
-    --s1: 4px; --s2: 6px; --s3: 10px; --s4: 16px; --s5: 26px; --s6: 42px; --s7: 68px;
-    --radius: 8px; --radius-sm: 5px;
+    --s1: 8px; --s2: 13px; --s3: 21px; --s4: 34px; --s5: 55px; --s6: 89px; --s7: 144px;
+    --radius: 0; --radius-sm: 0;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -608,42 +608,42 @@ function dashboardHTML(): string {
     overflow: hidden;
   }
 
-  /* ── MESSAGES ── */
+  /* ── MESSAGES — Swiss Typography, no bubbles ── */
   .messages-list {
     display: flex;
     flex-direction: column;
-    gap: var(--s3);
+    gap: 0;
   }
   .msg {
-    max-width: 780px;
-    padding: var(--s4) var(--s5);
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
+    max-width: 100%;
+    padding: var(--s2) 0;
+    border: none;
+    border-radius: 0;
+    background: none;
     position: relative;
+    border-bottom: 1px solid var(--border);
   }
+  .msg:last-child { border-bottom: none; }
   .msg-user {
-    align-self: flex-end;
-    background: var(--accent-bg);
-    border-color: var(--accent-light);
-    border-left: 3px solid var(--accent);
+    align-self: stretch;
+    padding-left: var(--s4);
   }
   .msg-assistant {
-    align-self: flex-start;
-    background: var(--blue-bg);
-    border-color: var(--blue);
-    border-left: 3px solid var(--blue);
+    align-self: stretch;
+    padding-left: var(--s4);
   }
   .msg-header {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: baseline;
-    margin-bottom: var(--s1);
+    gap: var(--s2);
+    margin-bottom: 4px;
   }
   .msg-role {
-    font-family: var(--mono);
-    font-size: 9.5px;
-    font-weight: 400;
-    letter-spacing: 0.08em;
+    font-family: var(--font);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
   }
   .msg-user .msg-role { color: var(--accent); }
@@ -652,41 +652,45 @@ function dashboardHTML(): string {
     font-family: var(--mono);
     font-size: 9px;
     color: var(--dim);
-    opacity: 0.6;
+    opacity: 0.5;
   }
   .msg-body {
-    font-size: 13px;
+    font-size: 14px;
     line-height: calc(1em * var(--phi));
     color: var(--text);
     white-space: pre-wrap;
     word-wrap: break-word;
-    max-height: 400px;
+    max-height: 600px;
     overflow-y: auto;
+    font-weight: 300;
+    letter-spacing: -0.01em;
   }
-  .msg-body::-webkit-scrollbar { width: 3px; }
-  .msg-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .msg-user .msg-body {
+    font-weight: 400;
+  }
+  .msg-body::-webkit-scrollbar { width: 2px; }
+  .msg-body::-webkit-scrollbar-thumb { background: var(--border); }
 
-  /* ── RESULT CARD (OCR/STT) ── */
+  /* ── RESULT CARD (OCR/STT) — Swiss, no radius ── */
   .result-card {
-    margin: var(--s3) 0;
-    padding: var(--s4) var(--s5);
-    background: var(--green-bg);
-    border: 1px solid var(--green);
-    border-radius: var(--radius-sm);
-    border-left: 3px solid var(--green);
+    margin: var(--s2) 0;
+    padding: var(--s2) var(--s3);
+    background: none;
+    border: none;
+    border-left: 2px solid var(--green);
+    border-radius: 0;
   }
   .result-card.error {
-    background: var(--rose-bg);
-    border-color: var(--rose);
+    border-left-color: var(--rose);
   }
   .result-card .rc-title {
-    font-family: var(--mono);
+    font-family: var(--font);
     font-size: 10px;
-    font-weight: 400;
-    letter-spacing: 0.08em;
+    font-weight: 700;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--green);
-    margin-bottom: var(--s2);
+    margin-bottom: 4px;
   }
   .result-card.error .rc-title { color: var(--rose); }
   .result-card .rc-body {
@@ -695,12 +699,13 @@ function dashboardHTML(): string {
     white-space: pre-wrap;
     word-wrap: break-word;
     color: var(--text);
+    font-weight: 300;
   }
   .result-card .rc-meta {
     font-family: var(--mono);
     font-size: 9.5px;
     color: var(--dim);
-    margin-top: var(--s2);
+    margin-top: 4px;
   }
 
   /* ── DROP ZONE ── */
@@ -816,22 +821,22 @@ function dashboardHTML(): string {
     border-color: rgba(196, 164, 120, 0.4);
   }
 
-  /* ── TERMINAL PANEL ── */
+  /* ── TERMINAL / THINKING PANEL — Swiss, prominent ── */
   .terminal-panel {
     background: var(--surface);
-    border-top: 1px solid var(--border);
+    border-top: 2px solid var(--text);
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    height: 240px;
-    transition: height 0.25s ease;
+    height: 280px;
+    transition: height 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
     overflow: hidden;
   }
-  .terminal-panel.collapsed { height: 36px; }
+  .terminal-panel.collapsed { height: 34px; }
   .tp-header {
     display: flex;
     align-items: center;
-    padding: var(--s2) var(--s5);
+    padding: var(--s1) var(--s3);
     background: var(--bg);
     border-bottom: 1px solid var(--border);
     cursor: pointer;
@@ -839,9 +844,10 @@ function dashboardHTML(): string {
     flex-shrink: 0;
   }
   .tp-title {
+    font-family: var(--font);
     font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 0.12em;
+    font-weight: 700;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--dim);
     flex: 1;
@@ -850,10 +856,11 @@ function dashboardHTML(): string {
     font-family: var(--mono);
     font-size: 9px;
     color: var(--green);
-    background: var(--green-bg);
+    background: none;
+    border: 1px solid var(--green);
     padding: 1px 6px;
-    border-radius: 8px;
-    margin-right: var(--s3);
+    border-radius: 0;
+    margin-right: var(--s2);
   }
   .tp-toggle {
     background: none;
@@ -861,22 +868,28 @@ function dashboardHTML(): string {
     font-size: 14px;
     color: var(--dim);
     cursor: pointer;
-    width: 20px;
+    width: 21px;
     text-align: center;
   }
   #terminal {
     flex: 1;
     overflow-y: auto;
-    padding: var(--s3) var(--s5);
+    padding: var(--s1) var(--s3);
     font-family: var(--mono);
     font-size: 11px;
     font-weight: 300;
-    line-height: 1.7;
+    line-height: 1.8;
     color: var(--text-secondary);
   }
-  #terminal::-webkit-scrollbar { width: 3px; }
-  #terminal::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-  .log-line { margin-bottom: 2px; }
+  #terminal::-webkit-scrollbar { width: 2px; }
+  #terminal::-webkit-scrollbar-thumb { background: var(--border); }
+  .log-line { margin-bottom: 1px; }
+  /* Stream output (agent thinking) — more visible */
+  .log-line .stream {
+    color: var(--text);
+    font-weight: 400;
+    opacity: 0.85;
+  }
   .log-line .ts { color: var(--dim); opacity: 0.4; font-size: 10px; }
   .log-line .event { color: var(--green); }
   .log-line .agent-name { color: var(--accent); }
@@ -917,7 +930,7 @@ function dashboardHTML(): string {
   .task-item:hover { background: var(--bg); }
   .badge {
     font-family: var(--mono); font-size: 9.5px; padding: 2px 8px;
-    border-radius: 10px; text-transform: lowercase; letter-spacing: 0.04em; flex-shrink: 0;
+    border-radius: 0; text-transform: lowercase; letter-spacing: 0.04em; flex-shrink: 0;
   }
   .badge-pending { background: var(--amber-bg); color: var(--amber); }
   .badge-running { background: var(--green-bg); color: var(--green); }
@@ -948,7 +961,7 @@ function dashboardHTML(): string {
   .file-link {
     display: inline-block; color: var(--accent); text-decoration: none;
     font-family: var(--mono); font-size: 11px; padding: 3px 10px;
-    border-radius: 12px; margin: 2px 3px 2px 0; background: var(--accent-bg);
+    border-radius: 0; margin: 2px 3px 2px 0; background: var(--accent-bg);
     border: 1px solid transparent; transition: all 0.2s ease;
   }
   .file-link:hover { border-color: var(--accent-light); background: #EDE6DD; color: var(--text); }
@@ -964,7 +977,7 @@ function dashboardHTML(): string {
   }
   .section-title .count {
     font-family: var(--mono); font-size: 10px; color: var(--accent);
-    background: var(--accent-bg); padding: 2px 8px; border-radius: 10px;
+    background: var(--accent-bg); padding: 2px 8px; border-radius: 0;
   }
   .section-gap { margin-top: var(--s5); }
 
@@ -1037,7 +1050,7 @@ function dashboardHTML(): string {
   }
   .tl-project {
     font-family: var(--mono); font-size: 9.5px; padding: 1px 8px;
-    border-radius: 10px; font-weight: 500; letter-spacing: 0.04em;
+    border-radius: 0; font-weight: 500; letter-spacing: 0.04em;
   }
   .tl-role {
     font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em;
@@ -1075,8 +1088,8 @@ function dashboardHTML(): string {
     display: flex; align-items: center; gap: var(--s3);
   }
   .mcp-badge {
-    font-size: 9px; padding: 2px 8px; border-radius: 10px;
-    background: var(--green-bg); color: var(--green); font-family: var(--mono);
+    font-size: 9px; padding: 2px 8px; border-radius: 0;
+    background: none; color: var(--green); font-family: var(--mono); border: 1px solid var(--green);
   }
   .mcp-cmd {
     font-family: var(--mono); font-size: 11px; color: var(--text-secondary);
@@ -1092,7 +1105,7 @@ function dashboardHTML(): string {
   }
   .mcp-pill {
     font-family: var(--mono); font-size: 10px; padding: 2px 8px;
-    background: var(--accent-bg); color: var(--accent); border-radius: 10px;
+    background: var(--accent-bg); color: var(--accent); border-radius: 0;
   }
 
   /* ── PROJECT COLOR HASH ── */
@@ -1102,22 +1115,84 @@ function dashboardHTML(): string {
   .proj-blue { background: var(--blue-bg); color: var(--blue); }
   .proj-accent { background: var(--accent-bg); color: var(--accent); }
 
-  /* ── MARKDOWN IN BUBBLES ── */
+  /* ── MARKDOWN — Swiss Typography ── */
   .md-code {
-    display: block; background: var(--bg); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: var(--s3) var(--s4); margin: var(--s2) 0;
-    font-family: var(--mono); font-size: 12px; overflow-x: auto; white-space: pre;
+    display: block;
+    background: var(--bg);
+    border: none;
+    border-left: 2px solid var(--border-strong);
+    border-radius: 0;
+    padding: var(--s2) var(--s3);
+    margin: var(--s1) 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 300;
+    overflow-x: auto;
+    white-space: pre;
+    line-height: 1.7;
+    tab-size: 2;
+    -moz-tab-size: 2;
+    counter-reset: line;
   }
+  .md-code .line-num {
+    display: inline-block;
+    width: 34px;
+    text-align: right;
+    padding-right: var(--s1);
+    margin-right: var(--s1);
+    color: var(--dim);
+    opacity: 0.4;
+    user-select: none;
+    font-size: 10px;
+    border-right: 1px solid var(--border);
+  }
+  /* Diff line highlighting */
+  .md-code .diff-add { background: rgba(107, 143, 113, 0.12); color: var(--green); }
+  .md-code .diff-del { background: rgba(176, 112, 112, 0.12); color: var(--rose); text-decoration: line-through; text-decoration-color: rgba(176, 112, 112, 0.3); }
+  .md-code .diff-hunk { color: var(--blue); font-weight: 400; }
+  /* Syntax tokens */
+  .md-code .tok-kw { color: var(--blue); font-weight: 400; }
+  .md-code .tok-str { color: var(--green); }
+  .md-code .tok-num { color: var(--amber); }
+  .md-code .tok-cmt { color: var(--dim); font-style: italic; }
+  .md-code .tok-fn { color: var(--accent); }
+  .md-code .tok-type { color: var(--rose); }
   .md-inline {
-    background: var(--bg); padding: 1px 5px; border-radius: 3px;
-    font-family: var(--mono); font-size: 0.9em;
+    background: var(--bg);
+    padding: 1px 6px;
+    border-radius: 0;
+    font-family: var(--mono);
+    font-size: 0.88em;
+    font-weight: 400;
+    border-bottom: 1px solid var(--border);
   }
-  .md-h1 { font-size: 16px; font-weight: 700; margin: var(--s3) 0 var(--s2); }
-  .md-h2 { font-size: 14px; font-weight: 600; margin: var(--s3) 0 var(--s1); }
-  .md-h3 { font-size: 13px; font-weight: 600; margin: var(--s2) 0 var(--s1); color: var(--text-secondary); }
-  .md-li { padding-left: var(--s4); position: relative; }
-  .md-li::before { content: '•'; position: absolute; left: var(--s2); color: var(--dim); }
-  .md-hr { border: none; border-top: 1px solid var(--border); margin: var(--s3) 0; }
+  .md-h1 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin: var(--s3) 0 var(--s2);
+    border-bottom: 2px solid var(--text);
+    padding-bottom: 4px;
+  }
+  .md-h2 {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: var(--s3) 0 var(--s1);
+  }
+  .md-h3 {
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: var(--s2) 0 var(--s1);
+    color: var(--text-secondary);
+  }
+  .md-li { padding-left: var(--s3); position: relative; }
+  .md-li::before { content: '\\2014'; position: absolute; left: 0; color: var(--dim); font-size: 12px; }
+  .md-hr { border: none; border-top: 1px solid var(--border); margin: var(--s2) 0; }
 
   /* ── DEBUG PANEL ── */
   .debug-panel {
@@ -1746,15 +1821,51 @@ async function handleFiles(files) {
   if (audio.length > 0) await uploadSTT(audio);
 }
 
-// ── SIMPLE MARKDOWN RENDERER ──
+// ── MARKDOWN RENDERER — Swiss Typography + Syntax Highlighting ──
+
+/** Minimal syntax highlighter for code blocks */
+function highlightSyntax(code, lang) {
+  // Diff highlighting
+  if (lang === 'diff' || code.indexOf('+++ ') > -1 && code.indexOf('--- ') > -1) {
+    return code.split('\\n').map(function(line, i) {
+      var num = '<span class="line-num">' + (i + 1) + '</span>';
+      if (line.indexOf('@@') === 0) return '<span class="diff-hunk">' + num + line + '</span>';
+      if (line.indexOf('+') === 0 && line.indexOf('+++') !== 0) return '<span class="diff-add">' + num + line + '</span>';
+      if (line.indexOf('-') === 0 && line.indexOf('---') !== 0) return '<span class="diff-del">' + num + line + '</span>';
+      return num + line;
+    }).join('\\n');
+  }
+  // General syntax tokens
+  var lines = code.split('\\n');
+  return lines.map(function(line, i) {
+    var num = '<span class="line-num">' + (i + 1) + '</span>';
+    var h = line;
+    // Comments (// and #)
+    h = h.replace(new RegExp('(\\/\\/.*$)', 'gm'), '<span class="tok-cmt">$1</span>');
+    h = h.replace(new RegExp('(#.*$)', 'gm'), '<span class="tok-cmt">$1</span>');
+    // Strings
+    h = h.replace(new RegExp("('(?:[^'\\\\\\\\]|\\\\\\\\.)*')", 'g'), '<span class="tok-str">$1</span>');
+    h = h.replace(new RegExp('("(?:[^"\\\\\\\\]|\\\\\\\\.)*")', 'g'), '<span class="tok-str">$1</span>');
+    // Numbers
+    h = h.replace(new RegExp('\\\\b(\\\\d+\\\\.?\\\\d*)\\\\b', 'g'), '<span class="tok-num">$1</span>');
+    // Keywords
+    h = h.replace(new RegExp('\\\\b(const|let|var|function|class|import|export|from|return|if|else|for|while|async|await|new|this|type|interface|enum|struct|func|def|self|fn|pub|mut|use|mod)\\\\b', 'g'), '<span class="tok-kw">$1</span>');
+    // Types
+    h = h.replace(new RegExp('\\\\b(string|number|boolean|void|null|undefined|any|never|String|Int|Bool|Float|Array|Promise|Record)\\\\b', 'g'), '<span class="tok-type">$1</span>');
+    return num + h;
+  }).join('\\n');
+}
+
 function renderMd(text) {
   var BT = String.fromCharCode(96); // backtick
   var BT3 = BT + BT + BT;
   var html = esc(text);
-  // Code blocks
+  // Code blocks — with syntax highlighting + line numbers
   var cbRe = new RegExp(BT3 + '(\\\\w*)\\n([\\\\s\\\\S]*?)' + BT3, 'g');
   html = html.replace(cbRe, function(_, lang, code) {
-    return '<pre class="md-code"><code>' + code.trim() + '</code></pre>';
+    var highlighted = highlightSyntax(code.trim(), lang);
+    var langLabel = lang ? '<span class="md-h3" style="margin:0 0 4px;font-size:9px">' + lang.toUpperCase() + '</span>' : '';
+    return langLabel + '<pre class="md-code"><code>' + highlighted + '</code></pre>';
   });
   // Inline code
   var icRe = new RegExp(BT + '([^' + BT + ']+)' + BT, 'g');

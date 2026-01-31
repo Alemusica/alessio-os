@@ -58,9 +58,28 @@ import {
 } from '../pti/surreal-bridge.js';
 import { buildContext, detectProject } from './context-builder.js';
 import type { AgentRole } from './context-builder.js';
-import { spawn, ChildProcess } from 'child_process';
-import { unlinkSync } from 'fs';
+import { spawn, execSync, ChildProcess } from 'child_process';
+import { unlinkSync, existsSync } from 'fs';
 import { homedir } from 'os';
+
+// Resolve claude CLI path at startup — avoid hardcoded path ENOENT
+const CLAUDE_BIN = (() => {
+  const candidates = [
+    '/usr/local/bin/claude',
+    `${homedir()}/.claude/local/bin/claude`,
+    `${homedir()}/Library/Application Support/Claude/claude-code/2.1.20/claude`,
+    '/opt/homebrew/bin/claude',
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  // Fallback: ask shell
+  try {
+    return execSync('which claude', { encoding: 'utf8' }).trim();
+  } catch {
+    return 'claude'; // last resort — rely on PATH
+  }
+})();
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 
@@ -470,7 +489,8 @@ export class Orchestrator {
     }
     args.push('-p', task);
 
-    const child = spawn('/usr/local/bin/claude', args, {
+    this.log(`[spawn] ${CLAUDE_BIN}`, 'dim');
+    const child = spawn(CLAUDE_BIN, args, {
       cwd,
       env: { ...process.env, NO_COLOR: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
