@@ -10,7 +10,8 @@
 
 import Cocoa
 import WebKit
-import UserNotifications
+import Speech
+import AVFoundation
 
 // ==================== CONFIG ====================
 
@@ -24,7 +25,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var webView: WKWebView!
     var searchBar: SearchBarController!
     var navDelegate: NavigationDelegate!
+    var uiDelegate: WebUIDelegate!
     var scriptHandler: ScriptMessageHandler!
+    var nativeSTT: NativeSTT!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Window
@@ -47,15 +50,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // WebView config
         let config = WKWebViewConfiguration()
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        config.preferences.setValue(true, forKey: "mediaDevicesEnabled")
+        config.preferences.setValue(false, forKey: "mediaCaptureRequiresSecureConnection")
 
         // JS → Swift bridge
         scriptHandler = ScriptMessageHandler()
         let contentController = config.userContentController
         contentController.add(scriptHandler, name: "alessioOS")
 
+        // Inject STT shim BEFORE page JS loads (atDocumentStart)
+        // Kill Web Speech API immediately so dashboard never sees it
+        let earlyShim = WKUserScript(source: """
+            // PTI: stt.engine = 'apple-native' — kill Web Speech API before page loads
+            Object.defineProperty(window, 'SpeechRecognition', { value: undefined, writable: false });
+            Object.defineProperty(window, 'webkitSpeechRecognition', { value: undefined, writable: false });
+            window._alessioOSNative = true;
+            console.log('[AlessioOS] Early shim: Web Speech API killed at documentStart');
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        contentController.addUserScript(earlyShim)
+
         webView = WKWebView(frame: .zero, configuration: config)
         navDelegate = NavigationDelegate()
+        uiDelegate = WebUIDelegate()
         webView.navigationDelegate = navDelegate
+        webView.uiDelegate = uiDelegate
 
         // Load dashboard
         if let url = URL(string: DASHBOARD_URL) {
@@ -64,6 +82,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         window.contentView = webView
 
+        // Native STT (SFSpeechRecognizer — on-device, italiano)
+        nativeSTT = NativeSTT(webView: webView)
+
         // Search bar overlay
         searchBar = SearchBarController(webView: webView, window: window)
 
@@ -71,9 +92,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenu()
 
         window.makeKeyAndOrderFront(nil)
-
-        // Request notification permission
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -237,10 +255,225 @@ class NavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Inject dark scrollbar + search bridge
+        // Inject dark scrollbar + native STT shim
         webView.evaluateJavaScript("""
             document.documentElement.style.colorScheme = 'dark';
+
+            // PTI: stt.engine = 'apple-native' (sostituisce Web Speech API)
+            // Salto: stt.input → [prompt.testo]
+            (function() {
+                if (window._nativeSTTReady) return;
+                window._nativeSTTReady = true;
+                var _sttActive = false;
+
+                console.log('[AlessioOS] Native STT shim injected');
+                if (typeof addLog === 'function') addLog('[shim] Native STT bridge attivo', 'event');
+
+                // Override toggleMic — usa bridge nativo invece di Web Speech API
+                var _origToggleMic = window.toggleMic;
+                window.toggleMic = function() {
+                    console.log('[AlessioOS] toggleMic called, active=' + _sttActive);
+                    if (typeof addLog === 'function') addLog('[shim] toggleMic → bridge nativo', 'dim');
+                    window.webkit.messageHandlers.alessioOS.postMessage({
+                        action: _sttActive ? 'stopSTT' : 'toggleSTT'
+                    });
+                };
+
+                // Kill la Web Speech API per evitare conflitti
+                window.SpeechRecognition = undefined;
+                window.webkitSpeechRecognition = undefined;
+                console.log('[AlessioOS] Web Speech API disabled');
+
+                // Callback da Swift: STT avviato
+                window.onSTTStart = function() {
+                    console.log('[AlessioOS] onSTTStart');
+                    _sttActive = true;
+                    var btn = document.getElementById('mic-btn');
+                    var prompt = document.getElementById('dz-prompt');
+                    if (btn) { btn.classList.add('recording'); btn.textContent = 'Stop'; }
+                    if (prompt) { prompt.innerHTML = '<span style="color:var(--accent)">\\u25cf</span> Ascolto...'; }
+                    if (typeof addLog === 'function') addLog('STT avviato (Apple Native)', 'event');
+                };
+
+                // Callback da Swift: risultato (interim o final)
+                window.onSTTResult = function(data) {
+                    console.log('[AlessioOS] onSTTResult: ' + JSON.stringify(data));
+                    var prompt = document.getElementById('dz-prompt');
+                    if (prompt && data.text) {
+                        prompt.innerHTML = '<span style="color:var(--accent)">\\u25cf</span> ' +
+                            data.text.substring(0, 120);
+                    }
+                    if (data.isFinal && data.text) {
+                        var input = document.querySelector('.cmd-input');
+                        if (input) { input.value = data.text; input.focus(); }
+                        if (typeof addLog === 'function') addLog('STT: "' + data.text.substring(0, 80) + '"', 'event');
+                    }
+                };
+
+                // Callback da Swift: STT fermato
+                window.onSTTStop = function() {
+                    console.log('[AlessioOS] onSTTStop');
+                    _sttActive = false;
+                    var btn = document.getElementById('mic-btn');
+                    var prompt = document.getElementById('dz-prompt');
+                    if (btn) { btn.classList.remove('recording'); btn.textContent = 'Registra'; }
+                    if (prompt) { prompt.textContent = '| Drop OCR/STT'; }
+                };
+
+                // Callback da Swift: errore
+                window.onSTTError = function(err) {
+                    console.log('[AlessioOS] onSTTError: ' + err);
+                    _sttActive = false;
+                    var btn = document.getElementById('mic-btn');
+                    var prompt = document.getElementById('dz-prompt');
+                    if (btn) { btn.classList.remove('recording'); btn.textContent = 'Registra'; }
+                    if (prompt) { prompt.textContent = '| Drop OCR/STT'; }
+                    if (typeof addLog === 'function') addLog('STT errore nativo: ' + err, 'error');
+                };
+            })();
         """, completionHandler: nil)
+    }
+}
+
+// ==================== NATIVE STT (SFSpeechRecognizer) ====================
+// PTI: stt.engine = 'apple-native'
+// Salto: stt.input → [prompt.testo] (via JS bridge)
+
+class NativeSTT {
+    let webView: WKWebView
+    let speechRecognizer: SFSpeechRecognizer?
+    let audioEngine = AVAudioEngine()
+    var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    var recognitionTask: SFSpeechRecognitionTask?
+    var isListening = false
+
+    init(webView: WKWebView) {
+        self.webView = webView
+        self.speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "it-IT"))
+    }
+
+    func toggle() {
+        print("[NativeSTT] toggle() isListening=\(isListening)")
+        if isListening {
+            stop()
+        } else {
+            start()
+        }
+    }
+
+    func start() {
+        print("[NativeSTT] start() called")
+        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+            print("[NativeSTT] ERROR: recognizer unavailable")
+            jsCallback("onSTTError", data: "'speech_unavailable'")
+            return
+        }
+        print("[NativeSTT] recognizer available, requesting authorization...")
+
+        SFSpeechRecognizer.requestAuthorization { [weak self] status in
+            print("[NativeSTT] authorization status: \(status.rawValue)")
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                switch status {
+                case .authorized:
+                    print("[NativeSTT] authorized — begin recording")
+                    self.beginRecording()
+                default:
+                    print("[NativeSTT] NOT authorized: \(status.rawValue)")
+                    self.jsCallback("onSTTError", data: "'not_authorized_status_\(status.rawValue)'")
+                }
+            }
+        }
+    }
+
+    private func beginRecording() {
+        // Cancel previous task
+        recognitionTask?.cancel()
+        recognitionTask = nil
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        // On-device when available (macOS 13+)
+        if #available(macOS 13, *) {
+            request.requiresOnDeviceRecognition = false
+        }
+
+        recognitionRequest = request
+
+        let inputNode = audioEngine.inputNode
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+            request.append(buffer)
+        }
+
+        audioEngine.prepare()
+        do {
+            try audioEngine.start()
+            isListening = true
+            print("[NativeSTT] audio engine started — listening")
+            jsCallback("onSTTStart", data: "null")
+        } catch {
+            print("[NativeSTT] audio engine error: \(error)")
+            jsCallback("onSTTError", data: "'\(error.localizedDescription)'")
+            return
+        }
+
+        recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                if let result = result {
+                    let text = result.bestTranscription.formattedString
+                    let escaped = text.replacingOccurrences(of: "'", with: "\\'")
+                        .replacingOccurrences(of: "\n", with: "\\n")
+                    let isFinal = result.isFinal
+                    self.jsCallback("onSTTResult", data: "{ text: '\(escaped)', isFinal: \(isFinal) }")
+
+                    if isFinal {
+                        self.stop()
+                    }
+                }
+                if error != nil && self.isListening {
+                    self.stop()
+                }
+            }
+        }
+    }
+
+    func stop() {
+        print("[NativeSTT] stop()")
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
+        recognitionTask = nil
+        isListening = false
+        jsCallback("onSTTStop", data: "null")
+    }
+
+    private func jsCallback(_ fn: String, data: String) {
+        DispatchQueue.main.async {
+            self.webView.evaluateJavaScript(
+                "window.\(fn) && window.\(fn)(\(data))",
+                completionHandler: nil
+            )
+        }
+    }
+}
+
+// ==================== UI DELEGATE (media permissions) ====================
+
+class WebUIDelegate: NSObject, WKUIDelegate {
+    func webView(_ webView: WKWebView,
+                 requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo,
+                 type: WKMediaCaptureType,
+                 decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        // Auto-grant microphone for localhost
+        if origin.host == "127.0.0.1" || origin.host == "localhost" {
+            decisionHandler(.grant)
+        } else {
+            decisionHandler(.deny)
+        }
     }
 }
 
@@ -251,6 +484,9 @@ class ScriptMessageHandler: NSObject, WKScriptMessageHandler {
         guard let body = message.body as? [String: Any] else { return }
         let action = body["action"] as? String ?? ""
 
+        // Get NativeSTT from AppDelegate
+        let stt = (NSApplication.shared.delegate as? AppDelegate)?.nativeSTT
+
         switch action {
         case "setTitle":
             if let title = body["title"] as? String {
@@ -258,12 +494,14 @@ class ScriptMessageHandler: NSObject, WKScriptMessageHandler {
             }
         case "notify":
             if let text = body["text"] as? String {
-                let content = UNMutableNotificationContent()
-                content.title = "AlessioOS"
-                content.body = text
-                let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-                UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+                print("[AlessioOS] Notification: \(text)")
             }
+        case "toggleSTT":
+            stt?.toggle()
+        case "startSTT":
+            stt?.start()
+        case "stopSTT":
+            stt?.stop()
         default:
             print("[AlessioOS] Unknown bridge action: \(action)")
         }

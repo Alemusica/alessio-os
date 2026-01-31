@@ -10,6 +10,8 @@
     "auto-save": "tsx src/hooks/auto-save.ts",
     "auto-save:week": "tsx src/hooks/auto-save.ts 7",
     "registry": "tsx src/pti/registry.ts",
+    "app:build": "mkdir -p build/AlessioOS.app/Contents/MacOS && cp app/AlessioOS/Info.plist build/AlessioOS.app/Contents/ && swiftc -O -framework Cocoa -framework WebKit -framework Speech -framework AVFoundation -o build/AlessioOS.app/Contents/MacOS/AlessioOS app/AlessioOS/main.swift && codesign --force --sign - build/AlessioOS.app",
+    "app:run": "npm run app:build && open build/AlessioOS.app",
     "ocr:compile": "swiftc -O -framework Vision -framework AppKit -o src/tools/ocr-vision src/tools/ocr-vision.swift",
     "stt:setup": "bash scripts/setup-whisper.sh",
     "stt:start": "bash ~/.local/share/whisper.cpp/stt-daemon.sh",

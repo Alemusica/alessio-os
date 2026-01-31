@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>AlessioOS</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.alessio.alessio-os</string>
+    <key>CFBundleName</key>
+    <string>AlessioOS</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticTermination</key>
+    <false/>
+    <key>LSUIElement</key>
+    <false/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>AlessioOS needs microphone access for Speech-to-Text input.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>AlessioOS uses on-device speech recognition for voice input.</string>
+</dict>
+</plist>
