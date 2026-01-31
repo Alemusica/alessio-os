@@ -1606,20 +1606,21 @@ function renderMd(text) {
   // Inline code
   var icRe = new RegExp(BT + '([^' + BT + ']+)' + BT, 'g');
   html = html.replace(icRe, '<code class="md-inline">$1</code>');
-  // Bold
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Bold (use RegExp constructor to avoid template literal eating backslashes)
+  var ST = String.fromCharCode(42); // asterisk *
+  html = html.replace(new RegExp(ST+ST+'([^'+ST+']+)'+ST+ST, 'g'), '<strong>$1</strong>');
   // Italic
-  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  html = html.replace(new RegExp(ST+'([^'+ST+']+)'+ST, 'g'), '<em>$1</em>');
   // Headers
-  html = html.replace(/^### (.+)$/gm, '<div class="md-h3">$1</div>');
-  html = html.replace(/^## (.+)$/gm, '<div class="md-h2">$1</div>');
-  html = html.replace(/^# (.+)$/gm, '<div class="md-h1">$1</div>');
+  html = html.replace(new RegExp('^### (.+)$', 'gm'), '<div class="md-h3">$1</div>');
+  html = html.replace(new RegExp('^## (.+)$', 'gm'), '<div class="md-h2">$1</div>');
+  html = html.replace(new RegExp('^# (.+)$', 'gm'), '<div class="md-h1">$1</div>');
   // List items
-  html = html.replace(/^- (.+)$/gm, '<div class="md-li">$1</div>');
+  html = html.replace(new RegExp('^- (.+)$', 'gm'), '<div class="md-li">$1</div>');
   // Horizontal rule
-  html = html.replace(/^---$/gm, '<hr class="md-hr">');
+  html = html.replace(new RegExp('^---$', 'gm'), '<hr class="md-hr">');
   // Line breaks
-  html = html.replace(/\n/g, '<br>');
+  html = html.replace(new RegExp('\\n', 'g'), '<br>');
   return html;
 }
 
