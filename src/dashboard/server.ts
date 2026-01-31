@@ -1621,11 +1621,9 @@ function renderMd(text) {
   // Inline code
   var icRe = new RegExp(BT + '([^' + BT + ']+)' + BT, 'g');
   html = html.replace(icRe, '<code class="md-inline">$1</code>');
-  // Bold (use RegExp constructor to avoid template literal eating backslashes)
-  var ST = String.fromCharCode(42); // asterisk *
-  html = html.replace(new RegExp(ST+ST+'([^'+ST+']+)'+ST+ST, 'g'), '<strong>$1</strong>');
-  // Italic
-  html = html.replace(new RegExp(ST+'([^'+ST+']+)'+ST, 'g'), '<em>$1</em>');
+  // Bold + Italic — use [*] character class (literal * in regex, no escaping issues)
+  html = html.replace(new RegExp('[*][*]([^*]+)[*][*]', 'g'), '<strong>$1</strong>');
+  html = html.replace(new RegExp('[*]([^*]+)[*]', 'g'), '<em>$1</em>');
   // Headers
   html = html.replace(new RegExp('^### (.+)$', 'gm'), '<div class="md-h3">$1</div>');
   html = html.replace(new RegExp('^## (.+)$', 'gm'), '<div class="md-h2">$1</div>');
