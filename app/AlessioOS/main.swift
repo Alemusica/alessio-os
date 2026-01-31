@@ -132,6 +132,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 
+        // Actions menu (AOS — internal API)
+        let actionsMenu = NSMenu(title: "Actions")
+        actionsMenu.addItem(NSMenuItem(title: "Toggle STT", action: #selector(aosAction(_:)), keyEquivalent: ""))
+        actionsMenu.items.last?.representedObject = "stt.toggle" as NSString
+        actionsMenu.addItem(NSMenuItem(title: "Design Tokens", action: #selector(aosAction(_:)), keyEquivalent: ","))
+        actionsMenu.items.last?.representedObject = "design.tokens" as NSString
+        actionsMenu.addItem(NSMenuItem(title: "Night Mode", action: #selector(aosAction(_:)), keyEquivalent: ""))
+        actionsMenu.items.last?.representedObject = "design.night" as NSString
+        actionsMenu.addItem(NSMenuItem(title: "PTI Probe", action: #selector(aosAction(_:)), keyEquivalent: ""))
+        actionsMenu.items.last?.representedObject = "design.probe" as NSString
+        actionsMenu.addItem(NSMenuItem.separator())
+        actionsMenu.addItem(NSMenuItem(title: "Toggle Terminal", action: #selector(aosAction(_:)), keyEquivalent: "t"))
+        actionsMenu.items.last?.representedObject = "terminal.toggle" as NSString
+        actionsMenu.addItem(NSMenuItem(title: "Debug Panel", action: #selector(aosAction(_:)), keyEquivalent: ""))
+        actionsMenu.items.last?.representedObject = "debug.toggle" as NSString
+        actionsMenu.addItem(NSMenuItem(title: "Log AOS State", action: #selector(aosAction(_:)), keyEquivalent: ""))
+        actionsMenu.items.last?.representedObject = "debug.state" as NSString
+        let actionsMenuItem = NSMenuItem()
+        actionsMenuItem.submenu = actionsMenu
+        mainMenu.addItem(actionsMenuItem)
+
         // Dev menu
         let devMenu = NSMenu(title: "Dev")
         let restartItem = NSMenuItem(title: "Restart Dashboard", action: #selector(restartDashboard), keyEquivalent: "R")
@@ -188,13 +209,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func openDevTools() {
-        // Toggle terminal panel open via JS
-        webView.evaluateJavaScript("""
-            var tp = document.querySelector('.terminal-panel');
-            if (tp && tp.classList.contains('collapsed')) {
-                tp.classList.remove('collapsed');
-            }
-        """, completionHandler: nil)
+        aosRun("terminal.toggle")
+    }
+
+    // ── AOS Bridge: Swift → JS action system ──
+    @objc func aosAction(_ sender: NSMenuItem) {
+        guard let actionName = sender.representedObject as? String else { return }
+        aosRun(actionName)
+    }
+
+    func aosRun(_ action: String) {
+        let js = "window.AOS && window.AOS.run('\(action)')"
+        webView.evaluateJavaScript(js, completionHandler: nil)
+        print("[AOS] \(action)")
     }
 }
 
@@ -548,6 +575,11 @@ class ScriptMessageHandler: NSObject, WKScriptMessageHandler {
             stt?.start()
         case "stopSTT":
             stt?.stop()
+        case "aosRun":
+            // JS → Swift → JS round-trip (for future native-side action hooks)
+            if let actionName = body["name"] as? String {
+                (NSApplication.shared.delegate as? AppDelegate)?.aosRun(actionName)
+            }
         default:
             print("[AlessioOS] Unknown bridge action: \(action)")
         }

@@ -1530,6 +1530,72 @@ const S = {
   logCount: 0,
 };
 
+// ══════════════════════════════════════════════════════════════
+// AOS — AlessioOS Action System (API interna, PTI-compatibile)
+// Ogni azione: { name, label, fn, group, shortcut? }
+// Swift bridge chiama: window.AOS.run('action.name')
+// Rytmo mappa a: AOS config → azione double-tap
+// ══════════════════════════════════════════════════════════════
+var AOS = (function() {
+  var _actions = {};
+  var _config = {
+    rytmo: 'stt.toggle',       // double-tap action
+    rytmoTriple: 'app.send',   // triple-tap action
+  };
+
+  // Load persisted config
+  try {
+    var raw = localStorage.getItem('alessio-os-aos');
+    if (raw) Object.assign(_config, JSON.parse(raw));
+  } catch {}
+
+  function register(name, label, fn, group) {
+    _actions[name] = { name: name, label: label, fn: fn, group: group || 'app' };
+  }
+
+  function run(name, params) {
+    var a = _actions[name];
+    if (!a) {
+      if (typeof addLog === 'function') addLog('[AOS] azione sconosciuta: ' + name, 'error');
+      return false;
+    }
+    if (typeof addLog === 'function') addLog('[AOS] ' + name, 'dim');
+    try { a.fn(params); } catch(e) {
+      if (typeof addLog === 'function') addLog('[AOS] errore: ' + e.message, 'error');
+    }
+    return true;
+  }
+
+  function list() { return Object.values(_actions); }
+  function groups() {
+    var g = {};
+    Object.values(_actions).forEach(function(a) {
+      if (!g[a.group]) g[a.group] = [];
+      g[a.group].push(a);
+    });
+    return g;
+  }
+
+  function setConfig(key, value) {
+    _config[key] = value;
+    localStorage.setItem('alessio-os-aos', JSON.stringify(_config));
+  }
+
+  function getConfig(key) { return _config[key]; }
+
+  return {
+    register: register,
+    run: run,
+    list: list,
+    groups: groups,
+    config: { set: setConfig, get: getConfig },
+    _actions: _actions,
+  };
+})();
+
+// Expose globally for Swift bridge
+window.AOS = AOS;
+
 // ── SEARCH BRIDGE (Swift wrapper Cmd+F) ──
 window.alessioOSSearch = function(query) {
   const nav = document.getElementById('projects-nav');
@@ -1955,7 +2021,28 @@ function renderMd(text) {
   html = html.replace(new RegExp('^### (.+)$', 'gm'), '<div class="md-h3">$1</div>');
   html = html.replace(new RegExp('^## (.+)$', 'gm'), '<div class="md-h2">$1</div>');
   html = html.replace(new RegExp('^# (.+)$', 'gm'), '<div class="md-h1">$1</div>');
-  // List items
+  // Tables (pipe-delimited)
+  html = html.replace(new RegExp('((?:^\\\\|.+\\\\|\\n?)+)', 'gm'), function(block) {
+    var rows = block.trim().split('\\n').filter(function(r) { return r.trim(); });
+    if (rows.length < 2) return block;
+    // Skip separator row (|---|---|)
+    var isHeader = true;
+    var out = '<table style="border-collapse:collapse;width:100%;font-size:var(--fs-sm);margin:var(--s1) 0">';
+    for (var ri = 0; ri < rows.length; ri++) {
+      var row = rows[ri].trim();
+      if (row.match(/^\\|[\\s\\-:]+\\|$/)) { isHeader = false; continue; }
+      var cells = row.split('|').filter(function(c,i,a) { return i > 0 && i < a.length - 1; });
+      var tag = (ri === 0) ? 'th' : 'td';
+      out += '<tr>' + cells.map(function(c) {
+        return '<' + tag + ' style="padding:var(--s1) var(--s2);border-bottom:1px solid var(--border);text-align:left;font-weight:' + (tag === 'th' ? '500' : '300') + '">' + c.trim() + '</' + tag + '>';
+      }).join('') + '</tr>';
+    }
+    out += '</table>';
+    return out;
+  });
+  // Numbered lists
+  html = html.replace(new RegExp('^(\\\\d+)\\\\.\\\\s+(.+)$', 'gm'), '<div class="md-li" style="padding-left:var(--s4)"><span style="position:absolute;left:0;color:var(--dim);font-family:var(--mono);font-size:var(--fs-2xs)">$1.</span>$2</div>');
+  // Unordered list items
   html = html.replace(new RegExp('^- (.+)$', 'gm'), '<div class="md-li">$1</div>');
   // Horizontal rule
   html = html.replace(new RegExp('^---$', 'gm'), '<hr class="md-hr">');
@@ -2201,30 +2288,100 @@ function updateProbeBar() {
   }).join('');
 }
 
-// ── RYTMO: DOUBLE-TAP TO RECORD ──
+// ── AOS: REGISTER CORE ACTIONS ──
+(function registerCoreActions() {
+  // --- App ---
+  AOS.register('app.reload', 'Ricarica pagina', function() {
+    location.reload();
+  }, 'app');
+  AOS.register('app.send', 'Invia comando', function() {
+    sendCommand();
+  }, 'app');
+  AOS.register('app.home', 'Vai a Home', function() {
+    goHome();
+  }, 'app');
+
+  // --- STT ---
+  AOS.register('stt.toggle', 'Toggle STT', function() {
+    toggleMic();
+  }, 'stt');
+
+  // --- View ---
+  AOS.register('view.chat', 'Vista Chat', function() { switchView('chat'); }, 'view');
+  AOS.register('view.timeline', 'Vista Timeline', function() { switchView('timeline'); }, 'view');
+  AOS.register('view.agents', 'Vista Agenti', function() { switchView('agents'); }, 'view');
+  AOS.register('view.tasks', 'Vista Tasks', function() { switchView('tasks'); }, 'view');
+  AOS.register('view.kb', 'Vista Knowledge Base', function() { switchView('kb'); }, 'view');
+  AOS.register('view.mcp', 'Vista MCP', function() { switchView('mcp'); }, 'view');
+
+  // --- Terminal ---
+  AOS.register('terminal.toggle', 'Toggle Terminal', function() {
+    toggleTerminal();
+  }, 'terminal');
+
+  // --- Design ---
+  AOS.register('design.tokens', 'Apri Design Tokens', function() {
+    document.getElementById('typo-popover').classList.add('open');
+  }, 'design');
+  AOS.register('design.night', 'Toggle Night Mode', function() {
+    toggleNight();
+  }, 'design');
+  AOS.register('design.probe', 'Toggle PTI Probe', function() {
+    toggleProbe();
+  }, 'design');
+
+  // --- Debug ---
+  AOS.register('debug.toggle', 'Toggle Debug Panel', function() {
+    toggleDebug();
+  }, 'debug');
+  AOS.register('debug.state', 'Log stato AOS', function() {
+    var actions = AOS.list();
+    if (typeof addLog === 'function') {
+      addLog('[AOS] ' + actions.length + ' azioni registrate:', 'event');
+      var groups = AOS.groups();
+      Object.keys(groups).forEach(function(g) {
+        addLog('  ' + g + ': ' + groups[g].map(function(a) { return a.name; }).join(', '), 'dim');
+      });
+      addLog('  rytmo → ' + AOS.config.get('rytmo'), 'dim');
+    }
+  }, 'debug');
+})();
+
+// ── RYTMO: GESTURE → AOS ACTION ──
 (function initRytmo() {
-  var lastTap = 0;
-  var tapTimeout = null;
-  var TAP_GAP = 400; // max ms between taps
+  var taps = [];
+  var TAP_GAP = 400;
+  var tapTimer = null;
 
   document.getElementById('chat-view').addEventListener('pointerup', function(e) {
-    // Ignore taps on interactive elements
     if (e.target.closest('textarea, button, input, a, select')) return;
 
-    var now = Date.now();
-    if (now - lastTap < TAP_GAP) {
-      // Double-tap detected
-      clearTimeout(tapTimeout);
-      lastTap = 0;
-      toggleMic();
+    taps.push(Date.now());
+    clearTimeout(tapTimer);
+
+    tapTimer = setTimeout(function() {
+      // Count taps within TAP_GAP window
+      var now = Date.now();
+      var recent = taps.filter(function(t) { return now - t < TAP_GAP * 2; });
+      taps = [];
+
+      if (recent.length >= 3) {
+        // Triple-tap → configurable action
+        var action = AOS.config.get('rytmoTriple') || 'app.send';
+        AOS.run(action);
+      } else if (recent.length >= 2) {
+        // Double-tap → configurable action (default: STT)
+        var action = AOS.config.get('rytmo') || 'stt.toggle';
+        AOS.run(action);
+      }
+
       // Visual feedback
-      var dz = document.getElementById('drop-zone');
-      dz.style.borderColor = 'var(--accent)';
-      setTimeout(function() { dz.style.borderColor = ''; }, 600);
-    } else {
-      lastTap = now;
-      tapTimeout = setTimeout(function() { lastTap = 0; }, TAP_GAP);
-    }
+      if (recent.length >= 2) {
+        var dz = document.getElementById('drop-zone');
+        dz.style.borderColor = 'var(--accent)';
+        setTimeout(function() { dz.style.borderColor = ''; }, 600);
+      }
+    }, TAP_GAP);
   });
 })();
 
