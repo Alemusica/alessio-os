@@ -14,9 +14,13 @@ import { tmpdir, homedir } from 'os';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { surqlQuery } from '../pti/surreal-bridge.js';
+import { Orchestrator } from '../agents/orchestrator.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = 3777;
+
+// --- Orchestrator singleton (started in startDashboard) ---
+let orchestrator: Orchestrator | null = null;
 const OCR_BINARY = resolve(__dirname, '..', 'tools', 'ocr-vision');
 
 // --- SSE clients ---
@@ -111,61 +115,27 @@ async function searchChats(query: string): Promise<unknown[]> {
   return Array.isArray(result) ? result : [];
 }
 
-// --- API: command (send to claude CLI) ---
+// --- API: command (dispatch through orchestrator worker) ---
 async function handleCommand(req: IncomingMessage): Promise<unknown> {
   const body = await readBody(req);
-  const { text } = JSON.parse(body);
+  const { text, project } = JSON.parse(body);
   if (!text) throw new Error('No text');
-
-  // Save user message to chat_log
-  await surqlQuery(`
-    CREATE chat_log SET
-      session_id = 'dashboard-live',
-      role = 'user',
-      content = $content,
-      project = 'alessio-os',
-      created_at = time::now()
-  `, { content: text });
 
   broadcast('log', { text: `> ${text}`, cls: 'agent-name' });
 
-  // Spawn claude CLI in print mode (non-interactive, streams to stdout)
-  const child = spawn('claude', ['-p', text], {
-    cwd: join(homedir(), 'alessio-os'),
-    env: { ...process.env, NO_COLOR: '1' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  if (!orchestrator) {
+    throw new Error('Orchestrator not started');
+  }
 
-  let fullResponse = '';
+  // Route through orchestrator to determine agents
+  const route = orchestrator.route(text);
+  broadcast('log', { text: `[route] ${route.roles.join(', ')} — priority ${route.priority}`, cls: 'event' });
 
-  child.stdout.on('data', (chunk: Buffer) => {
-    const text = chunk.toString();
-    fullResponse += text;
-    broadcast('log', { text, cls: '' });
-  });
+  // Dispatch directly through worker (creates task, builds context, spawns claude)
+  const worker = orchestrator.getWorker();
+  const { agentId, taskId } = await worker.dispatchDirect(text, project || 'alessio-os');
 
-  child.stderr.on('data', (chunk: Buffer) => {
-    broadcast('log', { text: chunk.toString(), cls: 'error' });
-  });
-
-  child.on('close', async (code) => {
-    broadcast('log', { text: `[claude exit: ${code}]`, cls: 'event' });
-    // Save assistant response to chat_log
-    if (fullResponse.trim()) {
-      try {
-        await surqlQuery(`
-          CREATE chat_log SET
-            session_id = 'dashboard-live',
-            role = 'assistant',
-            content = $content,
-            project = 'alessio-os',
-            created_at = time::now()
-        `, { content: fullResponse.trim() });
-      } catch { /* ok */ }
-    }
-  });
-
-  return { status: 'streaming', pid: child.pid };
+  return { status: 'streaming', agentId, taskId, route: route.roles };
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -1494,6 +1464,13 @@ sse.addEventListener('log', function(e) {
   addLog(d.text, d.cls || '');
 });
 
+sse.addEventListener('response', function(e) {
+  const d = JSON.parse(e.data);
+  if (d.text) {
+    showResult('Assistant', d.text, null, false);
+  }
+});
+
 sse.addEventListener('open', function() {
   addLog('Dashboard connessa', 'event');
   document.getElementById('health-dot').style.background = 'var(--green)';
@@ -1787,13 +1764,15 @@ async function sendCommand() {
   }
 
   try {
+    const project = S.project || 'alessio-os';
     const res = await fetch('/api/command', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
+      body: JSON.stringify({ text, project })
     });
     const result = await res.json();
-    addLog('Claude sta rispondendo... (pid ' + (result.pid || '?') + ')', 'event');
+    const roles = (result.route || ['coder']).join(', ');
+    addLog('[' + roles + '] Agent ' + (result.agentId || '?') + ' dispatched', 'event');
   } catch (err) {
     addLog('Errore comando: ' + err, 'error');
   }
@@ -2037,6 +2016,16 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
 // --- Start ---
 export function startDashboard(): void {
+  // Initialize orchestrator with SSE callbacks
+  orchestrator = new Orchestrator({
+    project: 'alessio-os',
+    maxParallelAgents: 2,
+    onLog: (text, cls) => broadcast('log', { text, cls }),
+    onResponse: (text, taskId) => broadcast('response', { text, taskId }),
+  });
+  orchestrator.start();
+  console.log('[Dashboard] Orchestrator + Worker avviati');
+
   const server = createServer((req, res) => {
     handleRequest(req, res).catch(() => {
       if (!res.headersSent) {
