@@ -286,7 +286,7 @@ async function handleTranscribe(req: IncomingMessage): Promise<unknown> {
 
   try {
     execSync(
-      `whisper "${tmp}" --language it --output_format json --output_dir "${outDir}"`,
+      `whisper "${tmp}" --model tiny --language it --output_format json --output_dir "${outDir}"`,
       {
         timeout: 120000,
         encoding: 'utf-8',
@@ -1442,38 +1442,43 @@ async function loadSessions(project) {
 
 // ── LOAD MESSAGES ──
 async function loadMessages(project, session) {
-  const el = document.getElementById('messages-area');
-  const grid = document.getElementById('sessions-grid');
+  var el = document.getElementById('messages-area');
+  var grid = document.getElementById('sessions-grid');
   grid.style.display = 'none';
   el.style.display = 'flex';
   el.innerHTML = '<div class="empty"><span class="loading-spinner"></span></div>';
 
   try {
-    const res = await fetch('/api/messages?project=' + encodeURIComponent(project) + '&session=' + encodeURIComponent(session));
-    const messages = await res.json();
+    var res = await fetch('/api/messages?project=' + encodeURIComponent(project) + '&session=' + encodeURIComponent(session));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var messages = await res.json();
 
     if (!messages.length) {
       el.innerHTML = '<div class="empty">Nessun messaggio</div>';
       return;
     }
 
-    el.innerHTML = messages.map(m => {
-      const isUser = m.role === 'user';
-      const time = m.created_at ? new Date(m.created_at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
-      const content = esc(m.content || '');
-      return '<div class="msg ' + (isUser ? 'msg-user' : 'msg-assistant') + '">' +
+    var html = '';
+    for (var i = 0; i < messages.length; i++) {
+      var m = messages[i];
+      var isUser = m.role === 'user';
+      var time = m.created_at ? new Date(m.created_at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
+      var body = renderMd(String(m.content || ''));
+      html += '<div class="msg ' + (isUser ? 'msg-user' : 'msg-assistant') + '">' +
         '<div class="msg-header">' +
           '<span class="msg-role">' + (m.role || '?') + '</span>' +
           '<span class="msg-time">' + time + '</span>' +
         '</div>' +
-        '<div class="msg-body">' + content + '</div>' +
+        '<div class="msg-body">' + body + '</div>' +
       '</div>';
-    }).join('');
+    }
+    el.innerHTML = html;
 
     // Scroll to bottom
-    const scroll = document.getElementById('chat-content');
-    setTimeout(() => { scroll.scrollTop = scroll.scrollHeight; }, 50);
+    var scroll = document.getElementById('chat-content');
+    setTimeout(function() { scroll.scrollTop = scroll.scrollHeight; }, 50);
   } catch (err) {
+    console.error('loadMessages error:', err);
     el.innerHTML = '<div class="empty">Errore: ' + esc(String(err)) + '</div>';
   }
 }
@@ -1700,62 +1705,85 @@ async function uploadSTT(files) {
   prompt.textContent = '| Drop OCR/STT';
 }
 
-// ── MIC RECORDING ──
-let mediaRecorder = null;
-let audioChunks = [];
+// ── STT: Web Speech API (instant, zero latency) ──
+var speechRec = null;
+var speechActive = false;
 
-async function toggleMic() {
-  const btn = document.getElementById('mic-btn');
+function toggleMic() {
+  var btn = document.getElementById('mic-btn');
+  var prompt = document.getElementById('dz-prompt');
 
-  if (mediaRecorder && mediaRecorder.state === 'recording') {
-    mediaRecorder.stop();
-    mediaRecorder.stream.getTracks().forEach(t => t.stop());
+  if (speechActive && speechRec) {
+    speechRec.stop();
+    speechActive = false;
     btn.classList.remove('recording');
     btn.textContent = 'Registra';
+    prompt.textContent = '| Drop OCR/STT';
+    addLog('Registrazione fermata', 'event');
     return;
   }
 
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorder = new MediaRecorder(stream);
-    audioChunks = [];
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    addLog('Web Speech API non supportata — usa Chrome/Edge', 'error');
+    return;
+  }
 
-    mediaRecorder.ondataavailable = function(e) { audioChunks.push(e.data); };
-    mediaRecorder.onstop = async function() {
-      const blob = new Blob(audioChunks, { type: 'audio/webm' });
-      audioChunks = [];
-      const fd = new FormData();
-      fd.append('files', blob, 'recording.webm');
-      await uploadSTTForm(fd);
-    };
+  speechRec = new SpeechRecognition();
+  speechRec.lang = 'it-IT';
+  speechRec.continuous = true;
+  speechRec.interimResults = true;
 
-    mediaRecorder.start();
+  var finalText = '';
+  var interimDiv = null;
+
+  speechRec.onstart = function() {
+    speechActive = true;
     btn.classList.add('recording');
     btn.textContent = 'Stop';
-    addLog('Registrazione avviata', 'event');
-  } catch (err) {
-    addLog('Microfono non disponibile: ' + err, 'error');
-  }
-}
+    prompt.innerHTML = '<span style="color:var(--accent)">&#9679;</span> Ascolto...';
+    addLog('STT avviato (Web Speech API)', 'event');
+  };
 
-async function uploadSTTForm(fd) {
-  const prompt = document.getElementById('dz-prompt');
-  prompt.innerHTML = '<span class="loading-spinner"></span> Trascrizione registrazione...';
-  addLog('STT da registrazione...', 'agent-name');
-
-  try {
-    const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
-    const result = await res.json();
-    if (result.error) {
-      showResult('STT Error', result.error, null, true);
-    } else {
-      showResult('Registrazione vocale', result.text || '', null, false);
-      addLog('STT completato', 'event');
+  speechRec.onresult = function(event) {
+    var interim = '';
+    for (var i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        finalText += event.results[i][0].transcript;
+      } else {
+        interim += event.results[i][0].transcript;
+      }
     }
-  } catch (err) {
-    showResult('STT Error', String(err), null, true);
-  }
-  prompt.textContent = '| Drop OCR/STT';
+    // Show interim results live
+    prompt.innerHTML = '<span style="color:var(--accent)">&#9679;</span> ' + esc(finalText + interim).slice(0, 80);
+  };
+
+  speechRec.onend = function() {
+    speechActive = false;
+    btn.classList.remove('recording');
+    btn.textContent = 'Registra';
+    prompt.textContent = '| Drop OCR/STT';
+
+    if (finalText.trim()) {
+      // Put transcription in input field
+      var input = document.querySelector('.cmd-input');
+      input.value = finalText.trim();
+      input.focus();
+      addLog('STT: "' + finalText.trim().slice(0, 60) + '"', 'event');
+    }
+  };
+
+  speechRec.onerror = function(event) {
+    speechActive = false;
+    btn.classList.remove('recording');
+    btn.textContent = 'Registra';
+    prompt.textContent = '| Drop OCR/STT';
+    if (event.error !== 'aborted') {
+      addLog('STT errore: ' + event.error, 'error');
+    }
+  };
+
+  speechRec.start();
 }
 
 // ── RYTMO: DOUBLE-TAP TO RECORD ──
