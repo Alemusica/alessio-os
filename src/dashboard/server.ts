@@ -1377,6 +1377,25 @@ const S = {
   logCount: 0,
 };
 
+// ── SEARCH BRIDGE (Swift wrapper Cmd+F) ──
+window.alessioOSSearch = function(query) {
+  const nav = document.getElementById('projects-nav');
+  if (!nav) return;
+  const buttons = nav.querySelectorAll('.nav-item[data-project]');
+  const q = (query || '').toLowerCase();
+  buttons.forEach(function(btn) {
+    const name = (btn.getAttribute('data-project') || '').toLowerCase();
+    btn.style.display = (!q || name.includes(q)) ? '' : 'none';
+  });
+};
+
+// ── NATIVE BRIDGE (Swift ← JS) ──
+window.alessioOSBridge = function(action, data) {
+  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.alessioOS) {
+    window.webkit.messageHandlers.alessioOS.postMessage(Object.assign({ action: action }, data || {}));
+  }
+};
+
 // ── SSE ──
 const sse = new EventSource('/events');
 const terminal = document.getElementById('terminal');
@@ -1431,6 +1450,8 @@ function selectProject(name) {
   switchView('chat');
   loadSessions(name);
   updateBreadcrumb();
+  // Swift wrapper: update title bar
+  alessioOSBridge('setTitle', { title: name });
 
   // Update sidebar active
   document.querySelectorAll('[data-project]').forEach(b => {

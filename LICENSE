@@ -1,0 +1,32 @@
+AlessioOS — Source Available License
+Copyright (c) 2025-present Alessio Cazzaniga <alessio.cazzaniga87@gmail.com>
+
+Permission is hereby granted to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to:
+
+  1. View, study, and inspect the source code for personal learning
+     and research purposes.
+  2. Run the Software locally for personal, non-commercial evaluation.
+  3. Fork and modify the Software for private, non-commercial use only.
+
+The following restrictions apply:
+
+  - You MAY NOT use the Software, or any substantial portion of it,
+    in any commercial product, service, or offering without prior
+    written permission from the copyright holder.
+  - You MAY NOT redistribute, sublicense, sell, or publish the
+    Software or derivative works, in whole or in part, without prior
+    written permission from the copyright holder.
+  - You MAY NOT present the Software or its architecture, design
+    patterns, or concepts as your own work.
+
+If you find this Software useful for research or want to collaborate,
+contact the author first.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
