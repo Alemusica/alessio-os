@@ -62,17 +62,31 @@ async function getFullState(): Promise<Record<string, unknown>> {
 
 // --- API: sessions per project ---
 async function getSessions(project: string): Promise<unknown[]> {
+  // SurrealDB GROUP BY non supporta math::min/max su datetime — uso subquery
   const res = await surqlQuery(`
-    SELECT session_id, count() AS msg_count,
-      math::min(created_at) AS first_msg,
-      math::max(created_at) AS last_msg
+    SELECT session_id, count() AS msg_count
     FROM chat_log
     WHERE project = $project
     GROUP BY session_id
-    ORDER BY last_msg DESC
   `, { project });
-  const result = res[0]?.result;
-  return Array.isArray(result) ? result : [];
+  const grouped = Array.isArray(res[0]?.result) ? res[0].result as Array<Record<string, unknown>> : [];
+
+  // Per ogni sessione, prendi first/last msg con query separata
+  const enriched = await Promise.all(grouped.map(async (s) => {
+    const dates = await surqlQuery(`
+      SELECT created_at FROM chat_log
+      WHERE project = $project AND session_id = $sid
+      ORDER BY created_at DESC LIMIT 1
+    `, { project, sid: s.session_id });
+    const last = (dates[0]?.result as Array<Record<string, unknown>>)?.[0]?.created_at ?? null;
+    return { ...s, last_msg: last };
+  }));
+
+  return enriched.sort((a, b) => {
+    const ta = a.last_msg ? new Date(a.last_msg as string).getTime() : 0;
+    const tb = b.last_msg ? new Date(b.last_msg as string).getTime() : 0;
+    return tb - ta;
+  });
 }
 
 // --- API: messages per session ---
@@ -316,7 +330,8 @@ let lastHash = '';
 async function pollAndBroadcast(): Promise<void> {
   try {
     const state = await getFullState();
-    const hash = JSON.stringify(state.agents) + JSON.stringify(state.tasks);
+    // Include chatProjects nel hash — così la sidebar aggiorna msg_count
+    const hash = JSON.stringify(state.agents) + JSON.stringify(state.tasks) + JSON.stringify(state.chatProjects);
     if (hash !== lastHash) {
       lastHash = hash;
       broadcast('state', state);
@@ -1637,7 +1652,12 @@ sse.addEventListener('response', function(e) {
   // Agent responded → stop thinking glow
   document.querySelector('.main').classList.remove('thinking');
   if (d.text) {
+    appendChatBubble('assistant', d.text);
     showResult('Assistant', d.text, null, false);
+  }
+  // Auto-reload sessions sidebar count
+  if (S.project) {
+    refreshSessionsSidebar(S.project);
   }
 });
 
@@ -1732,6 +1752,44 @@ function renderMd(text) {
   // Line breaks
   html = html.replace(new RegExp('\\n', 'g'), '<br>');
   return html;
+}
+
+// ── CHAT BUBBLE HELPERS ──
+
+/** Append a message bubble to messages-area (live, no DB reload) */
+function appendChatBubble(role, content) {
+  var el = document.getElementById('messages-area');
+  // Make messages-area visible if not already
+  if (el.style.display === 'none') {
+    el.style.display = 'flex';
+    document.getElementById('sessions-grid').style.display = 'none';
+  }
+  var isUser = role === 'user';
+  var time = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  var body = isUser ? esc(content) : renderMd(String(content));
+  var div = document.createElement('div');
+  div.className = 'msg ' + (isUser ? 'msg-user' : 'msg-assistant');
+  div.innerHTML = '<div class="msg-header">' +
+    '<span class="msg-role">' + role + '</span>' +
+    '<span class="msg-time">' + time + '</span>' +
+  '</div>' +
+  '<div class="msg-body">' + body + '</div>';
+  el.appendChild(div);
+  var scroll = document.getElementById('chat-content');
+  setTimeout(function() { scroll.scrollTop = scroll.scrollHeight; }, 50);
+}
+
+/** Refresh sessions sidebar project counts */
+async function refreshSessionsSidebar(project) {
+  try {
+    var res = await fetch('/api/sessions?project=' + encodeURIComponent(project));
+    var sessions = await res.json();
+    var btn = document.querySelector('[data-project="' + project + '"] .count');
+    if (btn) {
+      var total = sessions.reduce(function(sum, s) { return sum + (s.msg_count || 0); }, 0);
+      btn.textContent = total;
+    }
+  } catch (e) { /* silent */ }
 }
 
 function showResult(title, body, meta, isError) {
@@ -2022,7 +2080,8 @@ async function sendCommand() {
   input.value = '';
   input.style.height = '34px';
 
-  // Show user message as bubble in results area
+  // Show user message in chat + results
+  appendChatBubble('user', text);
   showResult('Tu', text, null, false);
 
   // Expand terminal if collapsed
