@@ -1,0 +1,29 @@
+{
+  "name": "alessio-os",
+  "version": "0.1.0",
+  "description": "Multi-agent orchestrator PTI con shared memory SurrealDB, STT italiano, OCR Apple Vision",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "auto-save": "tsx src/hooks/auto-save.ts",
+    "auto-save:week": "tsx src/hooks/auto-save.ts 7",
+    "ocr:compile": "swiftc -O -framework Vision -framework AppKit -o src/tools/ocr-vision src/tools/ocr-vision.swift",
+    "stt:setup": "bash scripts/setup-whisper.sh",
+    "stt:start": "bash ~/.local/share/whisper.cpp/stt-daemon.sh",
+    "schema:apply": "surreal sql --endpoint http://127.0.0.1:8000 --username root --password root --namespace research --database knowledge < schema/agent_tables.surql",
+    "health": "tsx src/health.ts",
+    "dashboard": "tsx src/index.ts --dashboard"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "author": "Alessio Cazzaniga <alessio.cazzaniga87@gmail.com>"
+}
