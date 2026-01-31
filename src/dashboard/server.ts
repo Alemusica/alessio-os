@@ -8,7 +8,7 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { execFileSync, execSync, spawn } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { writeFileSync, unlinkSync, mkdirSync, readFileSync } from 'fs';
 import { tmpdir, homedir } from 'os';
 import { join, resolve, dirname } from 'path';
@@ -287,7 +287,16 @@ async function handleTranscribe(req: IncomingMessage): Promise<unknown> {
   try {
     execSync(
       `whisper "${tmp}" --language it --output_format json --output_dir "${outDir}"`,
-      { timeout: 120000, encoding: 'utf-8' }
+      {
+        timeout: 120000,
+        encoding: 'utf-8',
+        env: {
+          ...process.env,
+          // Fix Python 3.13 macOS SSL cert issue
+          SSL_CERT_FILE: process.env.SSL_CERT_FILE
+            || join(homedir(), 'miniforge3/ssl/cert.pem'),
+        },
+      }
     );
     // whisper outputs <basename>.json
     const baseName = tmp.split('/').pop()!.replace(/\.[^.]+$/, '');
