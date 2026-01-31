@@ -1243,6 +1243,26 @@ function dashboardHTML(): string {
   }
   .debug-toggle:hover { color: var(--accent); border-color: var(--accent-light); }
 
+  /* ── RYTMO MAPPING ── */
+  .rytmo-row {
+    display: flex; align-items: center; gap: var(--s1); margin-bottom: var(--s1);
+  }
+  .rytmo-row select {
+    flex: 1; padding: 2px var(--s1); border: 1px solid var(--border);
+    border-radius: 0; font-family: var(--mono); font-size: var(--fs-2xs);
+    background: var(--bg); color: var(--text);
+  }
+  .rytmo-row .rytmo-taps {
+    width: 38px; font-family: var(--mono); font-size: var(--fs-2xs);
+    text-align: center; padding: 2px; border: 1px solid var(--border);
+    border-radius: 0; background: var(--bg); color: var(--accent);
+  }
+  .rytmo-row .rytmo-del {
+    background: none; border: 1px solid var(--border); color: var(--dim);
+    cursor: pointer; font-size: var(--fs-2xs); padding: 2px 6px; border-radius: 0;
+  }
+  .rytmo-row .rytmo-del:hover { color: var(--rose); border-color: var(--rose); }
+
   /* ── PTI PROBE OVERLAY ── */
   .pti-probe * {
     outline: 1px dashed rgba(139, 115, 85, 0.25) !important;
@@ -1382,6 +1402,13 @@ function dashboardHTML(): string {
       <button class="night-toggle" id="probe-btn" onclick="toggleProbe()">
         PTI Probe
       </button>
+      <label style="margin-top:var(--s4);border-top:1px solid var(--border);padding-top:var(--s3)">Rytmo Mapping</label>
+      <div id="rytmo-panel"></div>
+      <div style="display:flex;gap:var(--s1);margin-top:var(--s2)">
+        <button class="night-toggle" style="flex:1" onclick="rytmoAddSlot()">+ Mapping</button>
+      </div>
+      <label>Tap gap <span class="typo-size-display" id="rytmo-gap-val"></span></label>
+      <input type="range" min="200" max="800" step="50" value="400" id="rytmo-gap" oninput="rytmoGapChange()">
     </div>
     <div class="health-indicator" id="health">
       <span class="dot" id="health-dot"></span>
@@ -1539,14 +1566,21 @@ const S = {
 var AOS = (function() {
   var _actions = {};
   var _config = {
-    rytmo: 'stt.toggle',       // double-tap action
-    rytmoTriple: 'app.send',   // triple-tap action
+    rytmoGap: 400,
+    rytmoMappings: [
+      { taps: 2, action: 'stt.toggle' },
+      { taps: 3, action: 'app.send' },
+    ],
   };
 
   // Load persisted config
   try {
     var raw = localStorage.getItem('alessio-os-aos');
-    if (raw) Object.assign(_config, JSON.parse(raw));
+    if (raw) {
+      var saved = JSON.parse(raw);
+      if (saved.rytmoGap) _config.rytmoGap = saved.rytmoGap;
+      if (Array.isArray(saved.rytmoMappings)) _config.rytmoMappings = saved.rytmoMappings;
+    }
   } catch {}
 
   function register(name, label, fn, group) {
@@ -1576,12 +1610,48 @@ var AOS = (function() {
     return g;
   }
 
-  function setConfig(key, value) {
-    _config[key] = value;
+  function save() {
     localStorage.setItem('alessio-os-aos', JSON.stringify(_config));
   }
 
+  function setConfig(key, value) { _config[key] = value; save(); }
   function getConfig(key) { return _config[key]; }
+
+  // Rytmo: resolve tap count → action name
+  function rytmoResolve(tapCount) {
+    var m = _config.rytmoMappings || [];
+    for (var i = 0; i < m.length; i++) { if (m[i].taps === tapCount) return m[i].action; }
+    return null;
+  }
+
+  // Rytmo: set mapping
+  function rytmoSet(tapCount, actionName) {
+    var m = _config.rytmoMappings || [];
+    var found = false;
+    for (var i = 0; i < m.length; i++) {
+      if (m[i].taps === tapCount) {
+        if (actionName) m[i].action = actionName;
+        else m.splice(i, 1);
+        found = true; break;
+      }
+    }
+    if (!found && actionName) {
+      m.push({ taps: tapCount, action: actionName });
+      m.sort(function(a, b) { return a.taps - b.taps; });
+    }
+    _config.rytmoMappings = m;
+    save();
+  }
+
+  // Rytmo: add a new mapping slot
+  function rytmoAdd(tapCount, actionName) {
+    rytmoSet(tapCount, actionName);
+  }
+
+  // Rytmo: remove mapping
+  function rytmoRemove(tapCount) {
+    rytmoSet(tapCount, null);
+  }
 
   return {
     register: register,
@@ -1589,7 +1659,16 @@ var AOS = (function() {
     list: list,
     groups: groups,
     config: { set: setConfig, get: getConfig },
+    rytmo: {
+      resolve: rytmoResolve,
+      set: rytmoSet,
+      add: rytmoAdd,
+      remove: rytmoRemove,
+      mappings: function() { return _config.rytmoMappings; },
+      gap: function(v) { if (v !== undefined) { _config.rytmoGap = v; save(); } return _config.rytmoGap; },
+    },
     _actions: _actions,
+    _config: _config,
   };
 })();
 
@@ -2342,15 +2421,109 @@ function updateProbeBar() {
       Object.keys(groups).forEach(function(g) {
         addLog('  ' + g + ': ' + groups[g].map(function(a) { return a.name; }).join(', '), 'dim');
       });
-      addLog('  rytmo → ' + AOS.config.get('rytmo'), 'dim');
+      // Log rytmo mappings
+      var mappings = AOS.rytmo.mappings();
+      addLog('  rytmo (' + AOS.rytmo.gap() + 'ms):', 'dim');
+      mappings.forEach(function(m) {
+        addLog('    ' + m.taps + '-tap → ' + m.action, 'dim');
+      });
     }
   }, 'debug');
+
+  // --- Rytmo config ---
+  AOS.register('rytmo.config', 'Apri Rytmo Config', function() {
+    renderRytmoPanel();
+    document.getElementById('typo-popover').classList.add('open');
+  }, 'rytmo');
 })();
 
-// ── RYTMO: GESTURE → AOS ACTION ──
+// ── RYTMO CONFIG PANEL ──
+function renderRytmoPanel() {
+  var panel = document.getElementById('rytmo-panel');
+  var mappings = AOS.rytmo.mappings();
+  var actions = AOS.list();
+
+  var html = '';
+  mappings.forEach(function(m, idx) {
+    html += '<div class="rytmo-row">';
+    html += '<input type="number" class="rytmo-taps" min="2" max="6" value="' + m.taps + '" onchange="rytmoUpdateTaps(' + idx + ', this.value)">';
+    html += '<select onchange="rytmoUpdateAction(' + idx + ', this.value)">';
+    actions.forEach(function(a) {
+      var sel = (a.name === m.action) ? ' selected' : '';
+      html += '<option value="' + a.name + '"' + sel + '>' + a.name + '</option>';
+    });
+    html += '</select>';
+    html += '<button class="rytmo-del" onclick="rytmoDeleteSlot(' + idx + ')">\\u00d7</button>';
+    html += '</div>';
+  });
+
+  panel.innerHTML = html;
+
+  // Update gap slider
+  var gapEl = document.getElementById('rytmo-gap');
+  var gapVal = document.getElementById('rytmo-gap-val');
+  if (gapEl) { gapEl.value = AOS.rytmo.gap(); }
+  if (gapVal) { gapVal.textContent = AOS.rytmo.gap() + 'ms'; }
+}
+
+function rytmoUpdateTaps(idx, newTaps) {
+  var mappings = AOS.rytmo.mappings();
+  var m = mappings[idx];
+  if (!m) return;
+  AOS.rytmo.remove(m.taps);
+  AOS.rytmo.set(parseInt(newTaps), m.action);
+  renderRytmoPanel();
+}
+
+function rytmoUpdateAction(idx, newAction) {
+  var mappings = AOS.rytmo.mappings();
+  var m = mappings[idx];
+  if (!m) return;
+  AOS.rytmo.set(m.taps, newAction);
+}
+
+function rytmoDeleteSlot(idx) {
+  var mappings = AOS.rytmo.mappings();
+  var m = mappings[idx];
+  if (!m) return;
+  AOS.rytmo.remove(m.taps);
+  renderRytmoPanel();
+}
+
+function rytmoAddSlot() {
+  var mappings = AOS.rytmo.mappings();
+  // Find next unused tap count
+  var used = {};
+  mappings.forEach(function(m) { used[m.taps] = true; });
+  var next = 2;
+  while (used[next]) next++;
+  if (next > 6) return; // max 6 taps
+  AOS.rytmo.set(next, 'app.home');
+  renderRytmoPanel();
+}
+
+function rytmoGapChange() {
+  var v = parseInt(document.getElementById('rytmo-gap').value);
+  AOS.rytmo.gap(v);
+  document.getElementById('rytmo-gap-val').textContent = v + 'ms';
+}
+
+// Init Rytmo panel on first popover open
+(function() {
+  var observer = new MutationObserver(function(mutations) {
+    mutations.forEach(function(mut) {
+      if (mut.target.classList && mut.target.classList.contains('open')) {
+        renderRytmoPanel();
+      }
+    });
+  });
+  var pop = document.getElementById('typo-popover');
+  if (pop) observer.observe(pop, { attributes: true, attributeFilter: ['class'] });
+})();
+
+// ── RYTMO: GESTURE → AOS ACTION (N-tap mapping) ──
 (function initRytmo() {
   var taps = [];
-  var TAP_GAP = 400;
   var tapTimer = null;
 
   document.getElementById('chat-view').addEventListener('pointerup', function(e) {
@@ -2359,29 +2532,30 @@ function updateProbeBar() {
     taps.push(Date.now());
     clearTimeout(tapTimer);
 
+    var gap = AOS.rytmo.gap();
     tapTimer = setTimeout(function() {
-      // Count taps within TAP_GAP window
       var now = Date.now();
-      var recent = taps.filter(function(t) { return now - t < TAP_GAP * 2; });
+      var recent = taps.filter(function(t) { return now - t < gap * 2; });
       taps = [];
 
-      if (recent.length >= 3) {
-        // Triple-tap → configurable action
-        var action = AOS.config.get('rytmoTriple') || 'app.send';
-        AOS.run(action);
-      } else if (recent.length >= 2) {
-        // Double-tap → configurable action (default: STT)
-        var action = AOS.config.get('rytmo') || 'stt.toggle';
-        AOS.run(action);
+      if (recent.length < 2) return;
+
+      // Find highest matching tap count (greedy: 4-tap wins over 3-tap)
+      var tapCount = recent.length;
+      var action = null;
+      while (tapCount >= 2 && !action) {
+        action = AOS.rytmo.resolve(tapCount);
+        if (!action) tapCount--;
       }
 
-      // Visual feedback
-      if (recent.length >= 2) {
+      if (action) {
+        AOS.run(action);
+        // Visual feedback
         var dz = document.getElementById('drop-zone');
         dz.style.borderColor = 'var(--accent)';
         setTimeout(function() { dz.style.borderColor = ''; }, 600);
       }
-    }, TAP_GAP);
+    }, gap);
   });
 })();
 
