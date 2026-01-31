@@ -229,7 +229,17 @@ export async function buildContext(req: ContextRequest): Promise<BuiltContext> {
     sections.push(`## Stack progetto\nTecnologie: ${projectTags.join(', ')}`);
   }
 
-  // --- 8. Task corrente ---
+  // --- 8. Fonti dati (source awareness) ---
+  sections.push(`## Fonti dati
+I dati sopra (conversazioni, esperienze, knowledge) provengono da SurrealDB di sistema.
+Hai anche accesso a tool MCP — usali SOLO se pertinenti al task:
+- **code-catalog**: componenti UI, design system, codice catalogato. NON è SurrealDB.
+- **phonon-kb**: knowledge base esterna, paper, algoritmi. NON è SurrealDB.
+Se l'utente chiede "vai nel database" o "cerca nel surreal", i dati sono GIÀ inclusi sopra.
+Non confondere mai le fonti: cita sempre da dove viene ogni dato.
+Rispondi UNA sola volta — mai risposte duplicate o contraddittorie.`);
+
+  // --- 9. Task corrente ---
   sections.push(`## Task corrente\n${req.task}`);
 
   // --- Assembla system prompt ---

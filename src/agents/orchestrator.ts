@@ -458,9 +458,13 @@ export class Orchestrator {
       this.log(`[${agentId}] Context build failed: ${err} — proceeding without`, 'error');
     }
 
-    // Spawn claude process
+    // Spawn claude process — MCP isolato: agenti non ereditano MCP globali
+    // Evita confusione code-catalog/phonon-kb vs SurrealDB
     const cwd = resolveProjectCwd(project);
-    const args: string[] = [];
+    const args: string[] = [
+      '--mcp-config', '{}',       // nessun MCP server
+      '--strict-mcp-config',      // ignora config globale
+    ];
     if (systemPrompt) {
       args.push('--system-prompt', systemPrompt);
     }
@@ -483,7 +487,8 @@ export class Orchestrator {
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       agent.output += text;
-      this.log(text, '');
+      // cls 'stream' → UI lo mostra in log area, non come risposta chat
+      this.log(text, 'stream');
     });
 
     child.stderr.on('data', (chunk: Buffer) => {
