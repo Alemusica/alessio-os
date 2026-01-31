@@ -760,6 +760,29 @@ function dashboardHTML(): string {
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* ── AGENT THINKING GLOW ── */
+  .main.thinking {
+    position: relative;
+  }
+  .main.thinking::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100;
+    border-radius: 0;
+    box-shadow: inset 0 0 80px -20px rgba(196, 164, 120, 0.25),
+                inset 0 0 30px -10px rgba(196, 164, 120, 0.15);
+    animation: agent-glow 2.5s ease-in-out infinite;
+  }
+  @keyframes agent-glow {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+  .main.thinking .cmd-area {
+    box-shadow: 0 0 20px -5px rgba(196, 164, 120, 0.3);
+  }
+
   /* ── TERMINAL PANEL ── */
   .terminal-panel {
     background: var(--surface);
@@ -1522,22 +1545,33 @@ function renderKB(kb) {
 
 // ── SSE EVENTS ──
 sse.addEventListener('state', function(e) {
-  const state = JSON.parse(e.data);
+  var state = JSON.parse(e.data);
   renderAgents(state.agents || []);
   renderTasks(state.tasks || []);
   if (state.kb) renderKB(state.kb);
   document.getElementById('kb-agents-count').textContent = (state.agents || []).length;
   document.getElementById('kb-tasks-count').textContent = (state.tasks || []).length;
   renderSidebarProjects(state.chatProjects || []);
+  // Toggle thinking glow based on active agents
+  var mainEl = document.querySelector('.main');
+  if ((state.agents || []).length === 0) {
+    mainEl.classList.remove('thinking');
+  }
 });
 
 sse.addEventListener('log', function(e) {
-  const d = JSON.parse(e.data);
+  var d = JSON.parse(e.data);
   addLog(d.text, d.cls || '');
+  // Agent dispatched → start thinking glow
+  if (d.cls === 'agent-name' || (d.text && d.text.indexOf('dispatched') > -1)) {
+    document.querySelector('.main').classList.add('thinking');
+  }
 });
 
 sse.addEventListener('response', function(e) {
-  const d = JSON.parse(e.data);
+  var d = JSON.parse(e.data);
+  // Agent responded → stop thinking glow
+  document.querySelector('.main').classList.remove('thinking');
   if (d.text) {
     showResult('Assistant', d.text, null, false);
   }
