@@ -9,6 +9,7 @@
     "dev": "tsx src/index.ts",
     "auto-save": "tsx src/hooks/auto-save.ts",
     "auto-save:week": "tsx src/hooks/auto-save.ts 7",
+    "registry": "tsx src/pti/registry.ts",
     "ocr:compile": "swiftc -O -framework Vision -framework AppKit -o src/tools/ocr-vision src/tools/ocr-vision.swift",
     "stt:setup": "bash scripts/setup-whisper.sh",
     "stt:start": "bash ~/.local/share/whisper.cpp/stt-daemon.sh",
