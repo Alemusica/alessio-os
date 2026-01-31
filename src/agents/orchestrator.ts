@@ -1,43 +1,49 @@
 /**
- * ALESSIO-OS Orchestratore v3 — PTI Reattivo Puro
+ * ALESSIO-OS Orchestratore v4 — PTI Reattivo Puro
  *
- * Il grafo PTI È il control flow. Niente polling. Niente imperativi.
+ * Refactor v3 → v4:
+ * - route è un derivato REALE che ritorna RouteResult (non counter hack)
+ * - act:route spezzato in 3 azioni atomiche dichiarate
+ * - agent lifecycle modellato come fatti nel grafo (agent.{id}.*)
+ * - act:persist e act:broadcast triggerati da fatti agent
  *
  * FATTI (stato osservabile):
- *   input.text, input.project, input.type
+ *   input.text, input.project, input.type, input.seq
  *   agents.running (conteggio attivi)
- *   queue.version (bump ad ogni cambio coda)
+ *   tasks.pending.seq (bump dopo creazione task)
+ *   agent.done.last (ultimo agente completato — trigger persist/broadcast)
  *
  * DERIVATI (computati automaticamente):
- *   route := analyze(input.text) → { roles, priority }
+ *   route := { roles, priority, text, project, seq }
  *   capacity := maxParallel - agents.running
- *   can.dispatch := capacity > 0
  *
- * AZIONI (side-effect, fire-and-forget):
- *   act:route → crea task in SurrealDB quando route cambia
- *   act:dispatch → spawna agent quando can.dispatch è true e ci sono pending
- *   act:persist → salva risultato su chat_log e SurrealDB
- *   act:broadcast → emette SSE response event
+ * AZIONI (side-effect atomiche):
+ *   act:save-chat → salva messaggio utente su chat_log
+ *   act:create-tasks → crea task in SurrealDB, bumpa tasks.pending.seq
+ *   act:save-context → salva contesto sessione
+ *   act:dispatch → spawna agent quando ci sono pending e capacity
+ *   act:persist → salva risultato agent su DB
+ *   act:broadcast → emette SSE response
  *
  * ASSERT (invarianti):
  *   assert:max_parallel → agents.running <= maxParallel
  *
  * Flow:
  *   fatto('input.text', 'fix bug')
- *     → derivato 'route' ricalcola { roles: ['coder'], priority: 10 }
- *       → azione 'act:route' crea task in SurrealDB
- *         → fatto('queue.version', n+1)
- *           → derivato 'can.dispatch' = true
- *             → azione 'act:dispatch' spawna claude
- *               → fatto('agents.running', 1)
- *                 → derivato 'capacity' = 1
- *                   → assert:max_parallel OK
- *   ...claude finisce...
- *   fatto('agent.{id}.done', result)
- *     → azione 'act:persist' salva su DB
- *     → azione 'act:broadcast' emette SSE
- *     → fatto('agents.running', 0)
- *       → derivato 'capacity' = 2
+ *     → derivato 'route' = { roles: ['coder'], priority: 10, ... }
+ *       → act:save-chat (salva su chat_log)
+ *       → act:create-tasks (crea task) → fatto('tasks.pending.seq', n+1)
+ *       → act:save-context (salva sessione)
+ *         → act:dispatch (spawna claude) → fatto('agents.running', 1)
+ *           → derivato 'capacity' = 1
+ *             → assert:max_parallel OK
+ *   ...agent finisce...
+ *   fatto('agent.done.last', { agentId, taskId, result, ... })
+ *     → act:persist (salva su DB)
+ *     → act:broadcast (emette SSE)
+ *     → fatto('agents.running', n-1)
+ *       → derivato 'capacity' ricalcola
+ *         → act:dispatch spawna prossimo
  */
 
 import { GrafoPTI } from '../pti/graph.js';
@@ -73,6 +79,16 @@ interface RouteResult {
   priority: number;
   text: string;
   project: string;
+  seq: number;
+}
+
+interface AgentDoneEvent {
+  agentId: string;
+  taskId: string;
+  project: string;
+  role: AgentRole;
+  result: string;
+  seq: number;
 }
 
 interface RunningAgent {
@@ -86,7 +102,6 @@ interface RunningAgent {
 }
 
 // ==================== ROUTING PATTERNS ====================
-// Derivati dall'analisi di 7000+ messaggi
 
 const ROUTE_PATTERNS: Array<{ test: (s: string) => boolean; roles: AgentRole[]; priority: number }> = [
   { test: s => s.includes('[image]') || s.includes('[screenshot]') || s.includes('screenshot'),
@@ -143,7 +158,7 @@ function resolveProjectCwd(project: string): string {
   return paths[project] ?? join(home, project);
 }
 
-// ==================== ORCHESTRATORE PTI ====================
+// ==================== ORCHESTRATORE PTI v4 ====================
 
 export class Orchestrator {
   readonly grafo: GrafoPTI;
@@ -151,7 +166,8 @@ export class Orchestrator {
   private project: string;
   private maxParallel: number;
   private running: Map<string, RunningAgent> = new Map();
-  private dispatching = false; // mutex per act:dispatch
+  private dispatching = false;
+  private agentDoneSeq = 0;
   private log: (text: string, cls: string) => void;
   private onResponse: (text: string, taskId: string) => void;
 
@@ -162,7 +178,6 @@ export class Orchestrator {
     this.log = config.onLog ?? ((t, c) => console.log(`[orch:${c}] ${t}`));
     this.onResponse = config.onResponse ?? (() => {});
 
-    // Crea grafo con handler violazioni
     this.grafo = new GrafoPTI({
       onViolation: (v) => {
         this.log(`[ASSERT] ${v.messaggio}`, 'error');
@@ -175,28 +190,32 @@ export class Orchestrator {
   // ==================== COSTRUZIONE GRAFO ====================
 
   private costruisciGrafo(): void {
-    // === FATTI (stato osservabile) ===
+    // === FATTI ===
     this.grafo.fatto('input.text', '');
     this.grafo.fatto('input.project', this.project);
     this.grafo.fatto('input.type', 'text');
-    this.grafo.fatto('input.seq', 0);        // sequenza input (per triggerare ricalcolo)
+    this.grafo.fatto('input.seq', 0);
     this.grafo.fatto('agents.running', 0);
-    this.grafo.fatto('queue.version', 0);
+    this.grafo.fatto('tasks.pending.seq', 0);
     this.grafo.fatto('session.id', this.sessionId);
+    this.grafo.fatto('error.last', null);
+    this.grafo.fatto('error.count', 0);
+    this.grafo.fatto('agent.done.last', null);
 
-    // === DERIVATI (computati automaticamente) ===
+    // === DERIVATI ===
 
-    // route := analyze(input.text, input.seq)
-    // FIX #2: usa input.seq come valore (monotonically increasing)
-    // evita comparazione JSON fragile — il seq cambia sempre
+    // route := RouteResult reale (non counter hack)
+    // Include seq per garantire unicità anche con testo identico
     this.grafo.derivato(
       'route',
-      ['input.text', 'input.seq'],
+      ['input.text', 'input.seq', 'input.project'],
       (s) => {
         const text = s.get('input.text') as string;
         const seq = s.get('input.seq') as number;
-        if (!text || seq === 0) return 0;  // 0 = nessun input
-        return seq;  // cambio garantito ad ogni input()
+        const project = s.get('input.project') as string;
+        if (!text || seq === 0) return null;
+        const { roles, priority } = computeRoute(text);
+        return { roles, priority, text, project, seq } as RouteResult;
       },
     );
 
@@ -207,32 +226,16 @@ export class Orchestrator {
       (s) => this.maxParallel - (s.get('agents.running') as number ?? 0),
     );
 
-    // error.last — fatto che raccoglie errori da azioni async
-    this.grafo.fatto('error.last', null);
-    this.grafo.fatto('error.count', 0);
+    // === AZIONI ATOMICHE (ex-monolite act:route) ===
 
-    // === AZIONI (side-effect, fire-and-forget) ===
-
-    // act:route — quando route cambia (seq bumpa), crea task in SurrealDB
-    // FIX #1: errori propagati via fatto('error.last')
+    // act:save-chat — salva messaggio utente su chat_log
     this.grafo.azione(
-      'act:route',
+      'act:save-chat',
       ['route'],
       async (s) => {
-        const seq = s.get('route') as number;
-        if (!seq) return;
-
-        // Leggi input corrente direttamente (non via JSON)
-        const text = this.grafo.leggi('input.text') as string;
-        const project = (this.grafo.leggi('input.project') as string) || this.project;
-        if (!text) return;
-
-        const route = computeRoute(text);
-
+        const route = s.get('route') as RouteResult | null;
+        if (!route) return;
         try {
-          this.log(`[route] ${route.roles.join(', ')} — priority ${route.priority}`, 'event');
-
-          // Salva messaggio utente
           await surqlQuery(`
             CREATE chat_log SET
               session_id = 'dashboard-live',
@@ -240,59 +243,79 @@ export class Orchestrator {
               content = $content,
               project = $project,
               created_at = time::now()
-          `, { content: text, project });
-
-          // Crea task per ogni role
-          for (let i = 0; i < route.roles.length; i++) {
-            const role = route.roles[i];
-            const taskDesc = route.roles.length > 1
-              ? `[${role}] ${text}`
-              : text;
-
-            await createTask({
-              task: taskDesc,
-              project,
-              priority: route.priority - i,
-            });
-          }
-
-          // Salva contesto sessione
-          await saveSessionContext({
-            session_id: this.sessionId,
-            project,
-            decisions: [`Routed: ${route.roles.join(', ')} — priority ${route.priority}`],
-            agent_roles: route.roles,
-          });
-
-          // Bump queue version → triggera act:dispatch
-          this.grafo.fatto('queue.version', (this.grafo.leggi('queue.version') as number) + 1);
+          `, { content: route.text, project: route.project });
         } catch (err) {
-          // FIX #1: propaga errore nel grafo
-          const msg = err instanceof Error ? err.message : String(err);
-          this.log(`[act:route] ERROR: ${msg}`, 'error');
-          this.grafo.fatto('error.last', { source: 'act:route', msg, ts: Date.now() });
-          this.grafo.fatto('error.count', (this.grafo.leggi('error.count') as number) + 1);
+          this.propagaErrore('act:save-chat', err);
         }
       },
     );
 
-    // act:dispatch — quando queue.version o capacity cambiano, spawna TUTTI i pending
-    // FIX #3: loop fino a capacity esaurita — parallelismo immediato
-    // FIX #1: errori propagati via fatto('error.last')
+    // act:create-tasks — crea task in SurrealDB, poi bumpa tasks.pending.seq
+    this.grafo.azione(
+      'act:create-tasks',
+      ['route'],
+      async (s) => {
+        const route = s.get('route') as RouteResult | null;
+        if (!route) return;
+        try {
+          this.log(`[route] ${route.roles.join(', ')} — priority ${route.priority}`, 'event');
+          for (let i = 0; i < route.roles.length; i++) {
+            const role = route.roles[i];
+            const taskDesc = route.roles.length > 1
+              ? `[${role}] ${route.text}`
+              : route.text;
+            await createTask({
+              task: taskDesc,
+              project: route.project,
+              priority: route.priority - i,
+            });
+          }
+          // Bump → triggera act:dispatch
+          this.grafo.fatto(
+            'tasks.pending.seq',
+            (this.grafo.leggi('tasks.pending.seq') as number) + 1,
+          );
+        } catch (err) {
+          this.propagaErrore('act:create-tasks', err);
+        }
+      },
+    );
+
+    // act:save-context — salva contesto sessione
+    this.grafo.azione(
+      'act:save-context',
+      ['route'],
+      async (s) => {
+        const route = s.get('route') as RouteResult | null;
+        if (!route) return;
+        try {
+          await saveSessionContext({
+            session_id: this.sessionId,
+            project: route.project,
+            decisions: [`Routed: ${route.roles.join(', ')} — priority ${route.priority}`],
+            agent_roles: route.roles,
+          });
+        } catch (err) {
+          this.propagaErrore('act:save-context', err);
+        }
+      },
+    );
+
+    // act:dispatch — spawna agent quando ci sono pending + capacity
+    // Dipende da tasks.pending.seq (nuovi task) e capacity (slot liberi)
     this.grafo.azione(
       'act:dispatch',
-      ['capacity', 'queue.version'],
+      ['capacity', 'tasks.pending.seq'],
       async (s) => {
         const capacity = s.get('capacity') as number;
         if (capacity <= 0) return;
-        if (this.dispatching) return; // mutex: un dispatch alla volta
+        if (this.dispatching) return;
 
         const slots = Math.min(capacity, this.maxParallel - this.running.size);
         if (slots <= 0) return;
 
         this.dispatching = true;
         try {
-          // Step 1: SELECT pending tasks (ORDER + LIMIT supportati)
           const selRes = await surqlQuery(`
             SELECT * FROM task_queue
             WHERE status = 'pending'
@@ -302,31 +325,70 @@ export class Orchestrator {
           const pending = (selRes[0]?.result as Array<{ id: string; task: string; project: string }>) ?? [];
           if (pending.length === 0) return;
 
-          // Step 2: Claim atomico — UPDATE solo gli ID selezionati
           const ids = pending.map(t => t.id);
           await surqlQuery(`
             UPDATE task_queue SET status = 'claimed'
             WHERE id INSIDE $ids AND status = 'pending'
           `, { ids });
 
-          // Spawna in parallelo
           const spawns = pending.map(task => {
             const role = detectRole(task.task);
             return this.spawnAgent(task.id, task.task, task.project, role);
           });
           await Promise.all(spawns);
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.log(`[act:dispatch] ERROR: ${msg}`, 'error');
-          this.grafo.fatto('error.last', { source: 'act:dispatch', msg, ts: Date.now() });
-          this.grafo.fatto('error.count', (this.grafo.leggi('error.count') as number) + 1);
+          this.propagaErrore('act:dispatch', err);
         } finally {
           this.dispatching = false;
         }
       },
     );
 
-    // === ASSERT (invarianti) ===
+    // act:persist — salva risultato agent su DB quando agent finisce
+    this.grafo.azione(
+      'act:persist',
+      ['agent.done.last'],
+      async (s) => {
+        const evt = s.get('agent.done.last') as AgentDoneEvent | null;
+        if (!evt) return;
+        try {
+          await completeTask(evt.taskId, evt.result);
+          await upsertAgentState(evt.agentId, {
+            session_id: 'dashboard-live',
+            project: evt.project,
+            role: evt.role,
+            status: 'done',
+            current_task: evt.result ? evt.result.slice(0, 500) : '',
+            findings: evt.result ? [evt.result.slice(0, 500)] : [],
+          });
+          if (evt.result) {
+            await surqlQuery(`
+              CREATE chat_log SET
+                session_id = 'dashboard-live',
+                role = 'assistant',
+                content = $content,
+                project = $project,
+                created_at = time::now()
+            `, { content: evt.result, project: evt.project });
+          }
+        } catch (err) {
+          this.propagaErrore('act:persist', err);
+        }
+      },
+    );
+
+    // act:broadcast — emette SSE response quando agent finisce
+    this.grafo.azione(
+      'act:broadcast',
+      ['agent.done.last'],
+      async (s) => {
+        const evt = s.get('agent.done.last') as AgentDoneEvent | null;
+        if (!evt || !evt.result) return;
+        this.onResponse(evt.result, evt.taskId);
+      },
+    );
+
+    // === ASSERT ===
 
     this.grafo.assert(
       'assert:max_parallel',
@@ -336,33 +398,39 @@ export class Orchestrator {
     );
   }
 
-  // ==================== INPUT (unico entry point) ====================
+  // ==================== HELPER ====================
 
-  /**
-   * Ricevi input — setta fatti, il grafo fa tutto il resto.
-   * Questo è l'unico metodo che il dashboard deve chiamare.
-   */
+  private propagaErrore(source: string, err: unknown): void {
+    const msg = err instanceof Error ? err.message : String(err);
+    this.log(`[${source}] ERROR: ${msg}`, 'error');
+    this.grafo.fatto('error.last', { source, msg, ts: Date.now() });
+    this.grafo.fatto('error.count', (this.grafo.leggi('error.count') as number) + 1);
+  }
+
+  // ==================== INPUT ====================
+
   input(text: string, project?: string): void {
     const proj = project ?? this.project;
     this.grafo.fatto('input.project', proj);
     this.grafo.fatto('input.text', text);
-    // Bump seq per garantire ri-propagazione anche se testo identico
     this.grafo.fatto('input.seq', (this.grafo.leggi('input.seq') as number) + 1);
   }
 
-  /**
-   * Route senza side effects (per la dashboard che vuole mostrare la route)
-   */
   route(text: string): { roles: AgentRole[]; priority: number } {
     return computeRoute(text);
   }
 
-  // ==================== SPAWN AGENT ====================
+  // ==================== SPAWN AGENT (lifecycle nel grafo) ====================
 
   private async spawnAgent(taskId: string, task: string, project: string, role: AgentRole): Promise<void> {
     const agentId = `agent-${randomUUID().slice(0, 8)}`;
 
-    // Mark task running in DB
+    // Registra agent nel grafo come fatti
+    this.grafo.fatto(`agent.${agentId}.status`, 'starting');
+    this.grafo.fatto(`agent.${agentId}.role`, role);
+    this.grafo.fatto(`agent.${agentId}.task`, taskId);
+
+    // DB state
     await assignTask(taskId, agentId);
     await upsertAgentState(agentId, {
       session_id: 'dashboard-live',
@@ -374,8 +442,9 @@ export class Orchestrator {
 
     this.log(`[${agentId}] ${role} → "${task.slice(0, 80)}"`, 'agent-name');
 
-    // Aggiorna fatto: agents.running++
+    // agents.running++ nel grafo
     this.grafo.fatto('agents.running', this.running.size + 1);
+    this.grafo.fatto(`agent.${agentId}.status`, 'working');
 
     // Build enriched context
     let systemPrompt = '';
@@ -389,7 +458,7 @@ export class Orchestrator {
       this.log(`[${agentId}] Context build failed: ${err} — proceeding without`, 'error');
     }
 
-    // Spawn claude
+    // Spawn claude process
     const cwd = resolveProjectCwd(project);
     const args: string[] = [];
     if (systemPrompt) {
@@ -411,7 +480,6 @@ export class Orchestrator {
     };
     this.running.set(agentId, agent);
 
-    // Stream stdout → SSE
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       agent.output += text;
@@ -422,76 +490,52 @@ export class Orchestrator {
       this.log(chunk.toString(), 'error');
     });
 
-    // Handle spawn errors — propagate via fatto('error.last')
     child.on('error', (err) => {
       this.log(`[${agentId}] spawn error: ${err.message}`, 'error');
       this.running.delete(agentId);
+      this.grafo.fatto(`agent.${agentId}.status`, 'error');
       this.grafo.fatto('agents.running', this.running.size);
-      this.grafo.fatto('error.last', { source: `agent:${agentId}`, msg: err.message, ts: Date.now() });
-      this.grafo.fatto('error.count', (this.grafo.leggi('error.count') as number) + 1);
+      this.propagaErrore(`agent:${agentId}`, err);
       completeTask(taskId, `ERROR: ${err.message}`).catch(() => {});
       if (agent.promptFile) {
         try { unlinkSync(agent.promptFile); } catch { /* ok */ }
       }
     });
 
-    // On close → fatto('agent.{id}.done') → azioni di persist e broadcast
+    // On close → fatto agent.done.last → triggera act:persist + act:broadcast
     child.on('close', async (code) => {
       this.log(`[${agentId}] exit: ${code}`, 'event');
       this.running.delete(agentId);
 
       const result = agent.output.trim();
 
-      // Persist result
-      try { await completeTask(taskId, result); } catch { /* ok */ }
-      try {
-        await upsertAgentState(agentId, {
-          session_id: 'dashboard-live',
-          project,
-          role,
-          status: 'done',
-          current_task: task,
-          findings: result ? [result.slice(0, 500)] : [],
-        });
-      } catch { /* ok */ }
-
-      // Save assistant response
-      if (result) {
-        try {
-          await surqlQuery(`
-            CREATE chat_log SET
-              session_id = 'dashboard-live',
-              role = 'assistant',
-              content = $content,
-              project = $project,
-              created_at = time::now()
-          `, { content: result, project });
-        } catch { /* ok */ }
-
-        // Broadcast response
-        this.onResponse(result, taskId);
-      }
+      // Aggiorna stato agent nel grafo
+      this.grafo.fatto(`agent.${agentId}.status`, 'done');
 
       // Cleanup prompt file
       if (agent.promptFile) {
         try { unlinkSync(agent.promptFile); } catch { /* ok */ }
       }
 
-      // === KEY PTI: agents.running-- triggera il grafo ===
-      // capacity ricalcola → can.dispatch potrebbe diventare true
-      // → act:dispatch spawna prossimo agent dalla coda
+      // Emetti evento completamento → act:persist + act:broadcast
+      this.agentDoneSeq++;
+      const doneEvent: AgentDoneEvent = {
+        agentId, taskId, project, role, result,
+        seq: this.agentDoneSeq,
+      };
+      this.grafo.fatto('agent.done.last', doneEvent);
+
+      // agents.running-- → capacity ricalcola → act:dispatch può ripartire
       this.grafo.fatto('agents.running', this.running.size);
     });
   }
 
   // ==================== PUBLIC API ====================
 
-  /** Conteggio agenti attivi */
   get activeCount(): number {
     return this.running.size;
   }
 
-  /** Info agenti attivi */
   get activeAgents(): Array<{ agentId: string; taskId: string; project: string; role: string }> {
     return [...this.running.values()].map(a => ({
       agentId: a.agentId,
@@ -501,7 +545,6 @@ export class Orchestrator {
     }));
   }
 
-  /** Stato completo (per dashboard) */
   stato(): {
     session: string;
     project: string;
@@ -520,7 +563,6 @@ export class Orchestrator {
     };
   }
 
-  /** Health */
   async health(): Promise<{ surreal: boolean; agents: number; pti: ReturnType<GrafoPTI['stats']>; violations: number }> {
     const surrealOk = await surrealHealthCheck();
     return {
