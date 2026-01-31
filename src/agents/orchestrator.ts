@@ -292,18 +292,22 @@ export class Orchestrator {
 
         this.dispatching = true;
         try {
-          // Atomic claim: UPDATE status in-place, RETURN BEFORE per ottenere i record
-          const res = await surqlQuery(`
-            UPDATE task_queue SET status = 'claimed'
+          // Step 1: SELECT pending tasks (ORDER + LIMIT supportati)
+          const selRes = await surqlQuery(`
+            SELECT * FROM task_queue
             WHERE status = 'pending'
             ORDER BY priority DESC
             LIMIT $limit
-            RETURN BEFORE
           `, { limit: slots });
-          const tasks = res[0]?.result as Array<{ id: string; task: string; project: string; status: string }>;
-          // Filtra solo quelli che erano effettivamente pending (atomic claim)
-          const pending = tasks?.filter(t => t.status === 'pending') ?? [];
+          const pending = (selRes[0]?.result as Array<{ id: string; task: string; project: string }>) ?? [];
           if (pending.length === 0) return;
+
+          // Step 2: Claim atomico — UPDATE solo gli ID selezionati
+          const ids = pending.map(t => t.id);
+          await surqlQuery(`
+            UPDATE task_queue SET status = 'claimed'
+            WHERE id INSIDE $ids AND status = 'pending'
+          `, { ids });
 
           // Spawna in parallelo
           const spawns = pending.map(task => {
