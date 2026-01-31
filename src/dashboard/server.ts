@@ -1708,18 +1708,16 @@ async function uploadSTT(files) {
 // ── STT: Web Speech API (instant, zero latency) ──
 var speechRec = null;
 var speechActive = false;
+var sttFinal = '';
+var sttInterim = '';
 
 function toggleMic() {
   var btn = document.getElementById('mic-btn');
   var prompt = document.getElementById('dz-prompt');
 
   if (speechActive && speechRec) {
+    // Just stop — onend handles everything (including interim text)
     speechRec.stop();
-    speechActive = false;
-    btn.classList.remove('recording');
-    btn.textContent = 'Registra';
-    prompt.textContent = '| Drop OCR/STT';
-    addLog('Registrazione fermata', 'event');
     return;
   }
 
@@ -1729,13 +1727,12 @@ function toggleMic() {
     return;
   }
 
+  sttFinal = '';
+  sttInterim = '';
   speechRec = new SpeechRecognition();
   speechRec.lang = 'it-IT';
   speechRec.continuous = true;
   speechRec.interimResults = true;
-
-  var finalText = '';
-  var interimDiv = null;
 
   speechRec.onstart = function() {
     speechActive = true;
@@ -1746,16 +1743,19 @@ function toggleMic() {
   };
 
   speechRec.onresult = function(event) {
-    var interim = '';
+    sttInterim = '';
     for (var i = event.resultIndex; i < event.results.length; i++) {
       if (event.results[i].isFinal) {
-        finalText += event.results[i][0].transcript;
+        sttFinal += event.results[i][0].transcript;
       } else {
-        interim += event.results[i][0].transcript;
+        sttInterim += event.results[i][0].transcript;
       }
     }
-    // Show interim results live
-    prompt.innerHTML = '<span style="color:var(--accent)">&#9679;</span> ' + esc(finalText + interim).slice(0, 80);
+    // Show live preview
+    var preview = sttFinal + sttInterim;
+    if (preview) {
+      prompt.innerHTML = '<span style="color:var(--accent)">&#9679;</span> ' + esc(preview).slice(0, 120);
+    }
   };
 
   speechRec.onend = function() {
@@ -1764,12 +1764,15 @@ function toggleMic() {
     btn.textContent = 'Registra';
     prompt.textContent = '| Drop OCR/STT';
 
-    if (finalText.trim()) {
-      // Put transcription in input field
+    // Use final text, or fall back to last interim if user stopped quickly
+    var text = (sttFinal || sttInterim).trim();
+    if (text) {
       var input = document.querySelector('.cmd-input');
-      input.value = finalText.trim();
+      input.value = text;
       input.focus();
-      addLog('STT: "' + finalText.trim().slice(0, 60) + '"', 'event');
+      addLog('STT: "' + text.slice(0, 80) + '"', 'event');
+    } else {
+      addLog('STT: nessun testo riconosciuto', 'event');
     }
   };
 
