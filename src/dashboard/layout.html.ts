@@ -148,6 +148,7 @@ ${opts.css}
         <span class="vt-sep">|</span>
         <span class="view-tab" data-view="graph" onclick="switchView('graph')">Graph</span>
       </span>
+      <div class="agents-strip" id="agents-strip"></div>
       <div class="bc-search">
         <input type="text" id="search-input" placeholder="Cerca nelle chat..." onkeydown="if(event.key==='Enter')doSearch()">
       </div>
@@ -158,7 +159,6 @@ ${opts.css}
       <div class="view-scroll" id="chat-content">
         <div id="sessions-grid" class="sessions-grid"></div>
         <div id="messages-area" class="messages-list" style="display:none;"></div>
-        <div id="results-area"></div>
       </div>
 
       <!-- DROP ZONE + COMMAND INPUT -->

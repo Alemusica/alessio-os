@@ -303,6 +303,25 @@ function renderAgents(agents) {
       '<span class="task">' + esc(a.current_task || '-') + '</span>' +
     '</div>'
   ).join('');
+  // Update fixed strip in breadcrumb
+  renderAgentsStrip(agents);
+}
+
+/** Render compact agent indicators in the breadcrumb bar — always visible */
+function renderAgentsStrip(agents) {
+  var strip = document.getElementById('agents-strip');
+  if (!strip) return;
+  if (!agents.length) { strip.innerHTML = ''; return; }
+  strip.innerHTML = agents.map(function(a) {
+    var status = a.status || 'idle';
+    var role = (a.role || 'agent').slice(0, 3);
+    var task = a.current_task ? a.current_task.slice(0, 40) : '';
+    return '<div class="as-agent ' + status + '" title="' + esc(a.role || '') + ': ' + esc(a.current_task || '-') + '">' +
+      '<span class="as-dot"></span>' +
+      '<span>' + esc(role) + '</span>' +
+      (task ? '<span class="as-task">' + esc(task) + '</span>' : '') +
+    '</div>';
+  }).join('');
 }
 
 // ── TASKS ──
@@ -337,7 +356,10 @@ sse.addEventListener('agents:update', function(e) {
   renderAgents(agents);
   document.getElementById('kb-agents-count').textContent = agents.length;
   var mainEl = document.querySelector('.main');
-  if (agents.length === 0) mainEl.classList.remove('thinking');
+  if (agents.length === 0) {
+    mainEl.classList.remove('thinking');
+    renderAgentsStrip([]);
+  }
 });
 
 // Granular update: tasks only
@@ -370,7 +392,10 @@ sse.addEventListener('state', function(e) {
   document.getElementById('kb-tasks-count').textContent = (state.tasks || []).length;
   renderSidebarProjects(state.chatProjects || []);
   var mainEl = document.querySelector('.main');
-  if ((state.agents || []).length === 0) mainEl.classList.remove('thinking');
+  if ((state.agents || []).length === 0) {
+    mainEl.classList.remove('thinking');
+    renderAgentsStrip([]);
+  }
 });
 
 sse.addEventListener('log', function(e) {
@@ -388,7 +413,6 @@ sse.addEventListener('response', function(e) {
   document.querySelector('.main').classList.remove('thinking');
   if (d.text) {
     appendChatBubble('assistant', d.text);
-    showResult('Assistant', d.text, null, false);
   }
   // Auto-reload sessions sidebar count
   if (S.project) {
@@ -618,17 +642,7 @@ async function refreshSessionsSidebar(project) {
   } catch (e) { /* silent */ }
 }
 
-function showResult(title, body, meta, isError) {
-  const area = document.getElementById('results-area');
-  const card = document.createElement('div');
-  card.className = 'result-card' + (isError ? ' error' : '');
-  const renderedBody = (title === 'Assistant') ? renderMd(body) : esc(body);
-  card.innerHTML = '<div class="rc-title">' + esc(title) + '</div>' +
-    '<div class="rc-body">' + renderedBody + '</div>' +
-    (meta ? '<div class="rc-meta">' + esc(meta) + '</div>' : '');
-  area.appendChild(card);
-  scrollToBottom('chat-content');
-}
+// showResult removed — unified into appendChatBubble (PTI: niente duplicazione)
 
 async function uploadOCR(files) {
   const prompt = document.getElementById('dz-prompt');
@@ -643,16 +657,16 @@ async function uploadOCR(files) {
     const results = await res.json();
     results.forEach(r => {
       if (r.error) {
-        showResult('OCR Error: ' + (r.file || '?'), r.error, null, true);
+        appendChatBubble('assistant', '**OCR Error:** ' + (r.file || '?') + '\\n' + r.error);
         addLog('OCR errore: ' + r.error, 'error');
       } else {
-        const conf = r.confidence ? (r.confidence * 100).toFixed(1) + '%' : '';
-        showResult('OCR: ' + (r.file || ''), r.text || '', conf, false);
+        var conf = r.confidence ? ' (' + (r.confidence * 100).toFixed(1) + '%)' : '';
+        appendChatBubble('assistant', '**OCR: ' + (r.file || '') + conf + '**\\n' + (r.text || ''));
         addLog('OCR completato: ' + (r.file || ''), 'event');
       }
     });
   } catch (err) {
-    showResult('OCR Error', String(err), null, true);
+    appendChatBubble('assistant', '**OCR Error:** ' + String(err));
     addLog('OCR fallito: ' + err, 'error');
   }
   prompt.textContent = '| Drop OCR/STT';
@@ -670,14 +684,14 @@ async function uploadSTT(files) {
     const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
     const result = await res.json();
     if (result.error) {
-      showResult('STT Error: ' + (result.file || '?'), result.error, null, true);
+      appendChatBubble('assistant', '**STT Error:** ' + (result.file || '?') + '\\n' + result.error);
       addLog('STT errore: ' + result.error, 'error');
     } else {
-      showResult('Trascrizione: ' + (result.file || ''), result.text || '', null, false);
+      appendChatBubble('assistant', '**Trascrizione: ' + (result.file || '') + '**\\n' + (result.text || ''));
       addLog('STT completato: ' + (result.file || ''), 'event');
     }
   } catch (err) {
-    showResult('STT Error', String(err), null, true);
+    appendChatBubble('assistant', '**STT Error:** ' + String(err));
     addLog('STT fallito: ' + err, 'error');
   }
   prompt.textContent = '| Drop OCR/STT';
@@ -816,9 +830,8 @@ async function sendCommand() {
   input.value = '';
   input.style.height = '34px';
 
-  // Show user message in chat + results
+  // Show user message in chat
   appendChatBubble('user', text);
-  showResult('Tu', text, null, false);
 
   // Expand terminal if collapsed
   const panel = document.getElementById('terminal-panel');

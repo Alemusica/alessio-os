@@ -794,6 +794,63 @@ export const css = `
   .status-idle { background: var(--border-strong); }
   .status-blocked { background: var(--rose); }
   .status-done { background: var(--blue); }
+
+  /* ── AGENTS STRIP — fixed status indicators in breadcrumb bar ── */
+  .agents-strip {
+    display: flex;
+    align-items: center;
+    gap: var(--s1);
+    margin-left: auto;
+    margin-right: var(--s2);
+    flex-shrink: 0;
+  }
+  .agents-strip:empty { display: none; }
+  .as-agent {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px var(--s1);
+    border-radius: var(--s0);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: var(--fs-2xs);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+    cursor: default;
+    white-space: nowrap;
+  }
+  .as-agent.working {
+    border-color: var(--green);
+    color: var(--green);
+    animation: as-pulse 2s ease-in-out infinite;
+  }
+  .as-agent.blocked {
+    border-color: var(--rose);
+    color: var(--rose);
+  }
+  .as-agent .as-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+  .as-agent.working .as-dot { background: var(--green); box-shadow: 0 0 4px var(--green); }
+  .as-agent.idle .as-dot { background: var(--border-strong); }
+  .as-agent.blocked .as-dot { background: var(--rose); box-shadow: 0 0 4px var(--rose); }
+  .as-agent.done .as-dot { background: var(--blue); }
+  .as-agent .as-task {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 7px;
+    color: var(--dim);
+    text-transform: none;
+    letter-spacing: normal;
+  }
+  @keyframes as-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
   .agent .role {
     font-family: var(--mono); font-size: var(--fs-xs); color: var(--accent);
     letter-spacing: 0.06em; text-transform: uppercase; min-width: var(--s5);
