@@ -147,6 +147,30 @@ DEFINE FUNCTION IF NOT EXISTS fn::pti_topology($gid: string) {
     };
 };
 
+-- ==================== PARADIGM REGISTRY ====================
+-- Dischetti swappabili: ogni paradigma è un set di istruzioni per agenti
+
+DEFINE TABLE IF NOT EXISTS paradigm SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS paradigm_id ON paradigm TYPE string;
+DEFINE FIELD IF NOT EXISTS name ON paradigm TYPE string;
+DEFINE FIELD IF NOT EXISTS version ON paradigm TYPE string;
+DEFINE FIELD IF NOT EXISTS description ON paradigm TYPE string;
+DEFINE FIELD IF NOT EXISTS compact ON paradigm TYPE string;
+DEFINE FIELD IF NOT EXISTS full_text ON paradigm TYPE string;
+DEFINE FIELD IF NOT EXISTS tags ON paradigm TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS created_at ON paradigm TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_paradigm_id ON paradigm FIELDS paradigm_id UNIQUE;
+
+-- Assignment: quale paradigma è attivo per un progetto o agente
+DEFINE TABLE IF NOT EXISTS paradigm_assignment SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS target_type ON paradigm_assignment TYPE string;
+DEFINE FIELD IF NOT EXISTS target_id ON paradigm_assignment TYPE string;
+DEFINE FIELD IF NOT EXISTS paradigm_id ON paradigm_assignment TYPE string;
+DEFINE FIELD IF NOT EXISTS assigned_at ON paradigm_assignment TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_paradigm_assign ON paradigm_assignment FIELDS target_type, target_id UNIQUE;
+
 -- Derivato: stato sessione completo
 DEFINE FUNCTION IF NOT EXISTS fn::session_state($session_id: string) {
     RETURN {

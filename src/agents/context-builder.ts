@@ -8,7 +8,7 @@
  */
 
 import { surqlQuery } from '../pti/surreal-bridge.js';
-import { PTI_MANIFESTO_COMPACT } from '../pti/manifesto.js';
+import { resolveParadigm } from '../pti/paradigm-registry.js';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -24,6 +24,8 @@ export interface ContextRequest {
   task: string;
   tags?: string[];           // tag extra per filtrare experiences/knowledge
   sessionId?: string;
+  agentDefId?: string;       // per risoluzione paradigma agent-level
+  customIdentity?: string;   // override di AGENT_IDENTITIES[role]
 }
 
 export interface BuiltContext {
@@ -101,11 +103,13 @@ export async function buildContext(req: ContextRequest): Promise<BuiltContext> {
   let knowledgeCount = 0;
   let hasSessionCtx = false;
 
-  // --- 0. PTI Imprinting (paradigma universale, sempre presente) ---
-  sections.push(`## Paradigma: PTI — Imprinting\n${PTI_MANIFESTO_COMPACT}`);
+  // --- 0. Paradigm Resolution (dischetto attivo: agent → project → default PTI) ---
+  const paradigm = await resolveParadigm(req.project, req.agentDefId);
+  sections.push(`## Paradigma: ${paradigm.name} v${paradigm.version}\n${paradigm.compact}`);
 
   // --- 1. Agent Identity ---
-  sections.push(`## Ruolo\n${AGENT_IDENTITIES[req.role]}`);
+  const identity = req.customIdentity ?? AGENT_IDENTITIES[req.role];
+  sections.push(`## Ruolo\n${identity}`);
 
   // --- 2. User Profile ---
   sections.push(USER_PROFILE);

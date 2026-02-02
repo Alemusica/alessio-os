@@ -19,6 +19,7 @@ import { syncTopology, attachDeltaLogger, saveSnapshot, getSnapshots, getDeltaHi
 import { diffStrutturale, type NodoSnapshot } from '../pti/diff.js';
 import { analyzeCodebase } from '../pti/registry.js';
 import { PTI_MANIFESTO, PTI_VERSION } from '../pti/manifesto.js';
+import { listParadigms, getParadigm, createParadigm, deleteParadigm, assignParadigm, getAssignment, removeAssignment, seedDefaultParadigm } from '../pti/paradigm-registry.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, '..', '..');
@@ -743,6 +744,93 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
+  // ==================== PARADIGM REGISTRY API ====================
+
+  if (path === '/api/paradigms') {
+    try {
+      const paradigms = await listParadigms();
+      jsonResponse(res, paradigms);
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 500);
+    }
+    return;
+  }
+
+  if (path === '/api/paradigm' && req.method === 'GET') {
+    const id = query.id as string;
+    if (!id) { jsonResponse(res, { error: 'Missing id' }, 400); return; }
+    try {
+      const p = await getParadigm(id);
+      if (!p) { jsonResponse(res, { error: 'Not found' }, 404); return; }
+      jsonResponse(res, p);
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 500);
+    }
+    return;
+  }
+
+  if (path === '/api/paradigm' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const data = JSON.parse(body);
+      const id = await createParadigm(data);
+      jsonResponse(res, { paradigm_id: id });
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 400);
+    }
+    return;
+  }
+
+  if (path === '/api/paradigm' && req.method === 'DELETE') {
+    const id = query.id as string;
+    if (!id) { jsonResponse(res, { error: 'Missing id' }, 400); return; }
+    try {
+      await deleteParadigm(id);
+      jsonResponse(res, { ok: true });
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 400);
+    }
+    return;
+  }
+
+  if (path === '/api/paradigm/assign' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const data = JSON.parse(body);
+      await assignParadigm(data);
+      jsonResponse(res, { ok: true });
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 400);
+    }
+    return;
+  }
+
+  if (path === '/api/paradigm/assignment') {
+    const type = query.type as string;
+    const id = query.id as string;
+    if (!type || !id) { jsonResponse(res, { error: 'Missing type or id' }, 400); return; }
+    try {
+      const assignment = await getAssignment(type, id);
+      jsonResponse(res, assignment ?? { paradigm_id: null });
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 500);
+    }
+    return;
+  }
+
+  if (path === '/api/paradigm/assignment' && req.method === 'DELETE') {
+    const type = query.type as string;
+    const id = query.id as string;
+    if (!type || !id) { jsonResponse(res, { error: 'Missing type or id' }, 400); return; }
+    try {
+      await removeAssignment(type, id);
+      jsonResponse(res, { ok: true });
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 400);
+    }
+    return;
+  }
+
   // Default: dashboard HTML
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(dashboardHTML());
@@ -759,6 +847,10 @@ export function startDashboard(): void {
   });
   // No start() needed — PTI è reattivo, niente polling
   console.log('[Dashboard] Orchestrator PTI v4 pronto (reattivo, zero polling)');
+
+  // Seed default PTI paradigm
+  seedDefaultParadigm().catch(err =>
+    console.warn('[Dashboard] Paradigm seed failed:', err));
 
   // PTI Graph persistence: sync topology + delta logger
   syncTopology(orchestrator.grafo, 'orchestrator').catch(err =>
