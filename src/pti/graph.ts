@@ -139,6 +139,7 @@ export class GrafoPTI {
   private violations: AssertViolation[] = [];
   readonly deltaLog: DeltaLogEntry[] = [];
   private onViolation?: (v: AssertViolation) => void;
+  private onPropagationCb?: (entries: DeltaLogEntry[]) => void;
   private causaCorrente = '';
   private maxLogSize: number;
 
@@ -346,6 +347,7 @@ export class GrafoPTI {
   private propaga(sorgenteId: string, delta: Delta): boolean {
     this.propagando = true;
     let bloccato = false;
+    const logSizeBefore = this.deltaLog.length;
 
     try {
       const coda: Array<{ id: string; delta: Delta }> = [];
@@ -385,6 +387,9 @@ export class GrafoPTI {
 
     if (!bloccato) {
       this.processaCodaDifferita();
+      if (this.onPropagationCb && this.deltaLog.length > logSizeBefore) {
+        this.onPropagationCb(this.deltaLog.slice(logSizeBefore));
+      }
     } else {
       this.codaDifferita = [];
     }
@@ -697,6 +702,11 @@ export class GrafoPTI {
     }
   }
 
+  // --- PROPAGATION CALLBACK ---
+  onPropagazione(cb: (entries: DeltaLogEntry[]) => void): void {
+    this.onPropagationCb = cb;
+  }
+
   // --- LISTENER ---
   onDelta(id: string, cb: (nodo: Nodo, delta: Delta) => void): void {
     if (!this.listeners.has(id)) this.listeners.set(id, []);
@@ -836,12 +846,13 @@ export class GrafoPTI {
   }
 
   // --- GRAFO COMPLETO: per dashboard ---
-  stato(): Array<{ id: string; tipo: NodoTipo; valore: unknown; livello: number; salti: string[] }> {
+  stato(): Array<{ id: string; tipo: NodoTipo; valore: unknown; livello: number; sorgenti: string[]; salti: string[] }> {
     return [...this.nodi.values()].map((n) => ({
       id: n.id,
       tipo: n.tipo,
       valore: n.valore,
       livello: n.livello,
+      sorgenti: n.sorgenti,
       salti: n.salti,
     }));
   }

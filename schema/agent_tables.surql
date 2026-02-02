@@ -92,6 +92,61 @@ DEFINE FUNCTION IF NOT EXISTS fn::tasks_ready($project: string) {
         ORDER BY priority DESC;
 };
 
+-- ==================== PTI GRAPH TOPOLOGY ====================
+-- Persistenza struttura grafo PTI per visualizzazione e debug
+
+-- Nodo PTI persistito (fatto/derivato/azione/assert)
+DEFINE TABLE IF NOT EXISTS pti_node SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS node_id ON pti_node TYPE string;
+DEFINE FIELD IF NOT EXISTS tipo ON pti_node TYPE string;
+DEFINE FIELD IF NOT EXISTS valore ON pti_node FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS livello ON pti_node TYPE int DEFAULT 0;
+DEFINE FIELD IF NOT EXISTS sorgenti ON pti_node TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS salti ON pti_node TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS bloccante ON pti_node TYPE option<bool>;
+DEFINE FIELD IF NOT EXISTS messaggio ON pti_node TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS graph_id ON pti_node TYPE string DEFAULT 'main';
+DEFINE FIELD IF NOT EXISTS updated_at ON pti_node TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_pti_node_id ON pti_node FIELDS node_id, graph_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_pti_node_tipo ON pti_node FIELDS tipo;
+
+-- Edge PTI: dipendenza o salto tra nodi
+DEFINE TABLE IF NOT EXISTS pti_edge SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS from_node ON pti_edge TYPE string;
+DEFINE FIELD IF NOT EXISTS to_node ON pti_edge TYPE string;
+DEFINE FIELD IF NOT EXISTS tipo ON pti_edge TYPE string DEFAULT 'dipendenza';
+DEFINE FIELD IF NOT EXISTS graph_id ON pti_edge TYPE string DEFAULT 'main';
+
+DEFINE INDEX IF NOT EXISTS idx_pti_edge_pair ON pti_edge FIELDS from_node, to_node, graph_id UNIQUE;
+
+-- Delta log: storia propagazioni
+DEFINE TABLE IF NOT EXISTS pti_delta_log SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS nodo_id ON pti_delta_log TYPE string;
+DEFINE FIELD IF NOT EXISTS delta ON pti_delta_log TYPE object;
+DEFINE FIELD IF NOT EXISTS causa ON pti_delta_log TYPE string;
+DEFINE FIELD IF NOT EXISTS graph_id ON pti_delta_log TYPE string DEFAULT 'main';
+DEFINE FIELD IF NOT EXISTS created_at ON pti_delta_log TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_pti_delta_nodo ON pti_delta_log FIELDS nodo_id;
+DEFINE INDEX IF NOT EXISTS idx_pti_delta_ts ON pti_delta_log FIELDS created_at;
+
+-- Snapshot grafo per time-travel
+DEFINE TABLE IF NOT EXISTS pti_snapshot SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS graph_id ON pti_snapshot TYPE string DEFAULT 'main';
+DEFINE FIELD IF NOT EXISTS snapshot ON pti_snapshot TYPE object;
+DEFINE FIELD IF NOT EXISTS label ON pti_snapshot TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_at ON pti_snapshot TYPE datetime DEFAULT time::now();
+
+-- Topologia completa in una query
+DEFINE FUNCTION IF NOT EXISTS fn::pti_topology($gid: string) {
+    RETURN {
+        nodi: (SELECT * FROM pti_node WHERE graph_id = $gid ORDER BY livello ASC),
+        edges: (SELECT * FROM pti_edge WHERE graph_id = $gid),
+        delta_count: (SELECT count() FROM pti_delta_log WHERE graph_id = $gid GROUP ALL)[0].count
+    };
+};
+
 -- Derivato: stato sessione completo
 DEFINE FUNCTION IF NOT EXISTS fn::session_state($session_id: string) {
     RETURN {
