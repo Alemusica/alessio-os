@@ -481,7 +481,7 @@ export class Orchestrator {
     // Evita confusione code-catalog/phonon-kb vs SurrealDB
     const cwd = resolveProjectCwd(project);
     const args: string[] = [
-      '--mcp-config', '{}',       // nessun MCP server
+      '--mcp-config', '{"mcpServers":{}}', // nessun MCP server
       '--strict-mcp-config',      // ignora config globale
     ];
     if (systemPrompt) {

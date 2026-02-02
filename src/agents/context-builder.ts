@@ -8,6 +8,7 @@
  */
 
 import { surqlQuery } from '../pti/surreal-bridge.js';
+import { PTI_MANIFESTO_COMPACT } from '../pti/manifesto.js';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -99,6 +100,9 @@ export async function buildContext(req: ContextRequest): Promise<BuiltContext> {
   let experienceCount = 0;
   let knowledgeCount = 0;
   let hasSessionCtx = false;
+
+  // --- 0. PTI Imprinting (paradigma universale, sempre presente) ---
+  sections.push(`## Paradigma: PTI — Imprinting\n${PTI_MANIFESTO_COMPACT}`);
 
   // --- 1. Agent Identity ---
   sections.push(`## Ruolo\n${AGENT_IDENTITIES[req.role]}`);
