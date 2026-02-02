@@ -147,6 +147,24 @@ DEFINE FUNCTION IF NOT EXISTS fn::pti_topology($gid: string) {
     };
 };
 
+-- ==================== AGENT ISSUE ASSIGNMENTS ====================
+
+DEFINE TABLE IF NOT EXISTS agent_issue_assignment SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS agent_def_id ON agent_issue_assignment TYPE string;
+DEFINE FIELD IF NOT EXISTS project ON agent_issue_assignment TYPE string;
+DEFINE FIELD IF NOT EXISTS issue_number ON agent_issue_assignment TYPE int;
+DEFINE FIELD IF NOT EXISTS issue_title ON agent_issue_assignment TYPE string;
+DEFINE FIELD IF NOT EXISTS branch_name ON agent_issue_assignment TYPE string;
+DEFINE FIELD IF NOT EXISTS status ON agent_issue_assignment TYPE string DEFAULT 'pending';
+DEFINE FIELD IF NOT EXISTS task_id ON agent_issue_assignment TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS result_summary ON agent_issue_assignment TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS pr_url ON agent_issue_assignment TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_at ON agent_issue_assignment TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS completed_at ON agent_issue_assignment TYPE option<datetime>;
+
+DEFINE INDEX IF NOT EXISTS idx_agent_issue ON agent_issue_assignment FIELDS agent_def_id, issue_number;
+DEFINE INDEX IF NOT EXISTS idx_agent_issue_status ON agent_issue_assignment FIELDS status;
+
 -- ==================== PROJECT GITHUB CONFIG ====================
 
 DEFINE TABLE IF NOT EXISTS project_github SCHEMAFULL;

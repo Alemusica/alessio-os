@@ -21,7 +21,7 @@ import { analyzeCodebase } from '../pti/registry.js';
 import { PTI_MANIFESTO, PTI_VERSION } from '../pti/manifesto.js';
 import { listParadigms, getParadigm, createParadigm, deleteParadigm, assignParadigm, getAssignment, removeAssignment, seedDefaultParadigm } from '../pti/paradigm-registry.js';
 import { listAgentDefinitions, getAgentDefinition, createAgentDefinition, updateAgentDefinition, deleteAgentDefinition } from '../agents/agent-definitions.js';
-import { resolveRepo, getIssues, getPRs, getDiscussions, getGithubConfig, setGithubConfig } from '../integrations/github.js';
+import { resolveRepo, resolveProjectPath as ghProjectPath, getIssues, getPRs, getDiscussions, getIssueBody, getGithubConfig, setGithubConfig, generateBranchName, createBranch, branchExists, checkoutBranch } from '../integrations/github.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, '..', '..');
@@ -810,6 +810,96 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       jsonResponse(res, { ok: true });
     } catch (err) {
       jsonResponse(res, { error: String(err) }, 400);
+    }
+    return;
+  }
+
+  // ==================== AGENT → ISSUE ASSIGNMENT ====================
+
+  if (path === '/api/github/assign-agent' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const { project, agent_def_id, issue_number, issue_title } = JSON.parse(body);
+      if (!project || !agent_def_id || !issue_number) {
+        jsonResponse(res, { error: 'Missing project, agent_def_id, or issue_number' }, 400);
+        return;
+      }
+
+      // 1. Resolve repo
+      const repo = await resolveRepo(project);
+      if (!repo) { jsonResponse(res, { error: 'No GitHub repo configured for ' + project }, 400); return; }
+
+      // 2. Get agent definition
+      const agentDef = await getAgentDefinition(agent_def_id);
+      if (!agentDef) { jsonResponse(res, { error: 'Agent definition not found' }, 404); return; }
+
+      // 3. Generate branch name
+      const branch = generateBranchName(issue_number, issue_title || `issue-${issue_number}`);
+
+      // 4. Create/checkout branch
+      const projectPath = ghProjectPath(project);
+      try {
+        if (!branchExists(repo, branch)) {
+          createBranch(projectPath, branch);
+        } else {
+          checkoutBranch(projectPath, branch);
+        }
+      } catch (err) {
+        broadcast('log', { text: `[GitHub] Branch error: ${err}`, cls: 'error' });
+        // Continue anyway — agent can work without branch switch
+      }
+
+      // 5. Get issue body for context
+      const issueBody = getIssueBody(repo, issue_number);
+
+      // 6. Record assignment in DB
+      await surqlQuery(`
+        CREATE agent_issue_assignment SET
+          agent_def_id = $agent_def_id,
+          project = $project,
+          issue_number = $issue_number,
+          issue_title = $issue_title,
+          branch_name = $branch_name,
+          status = 'working',
+          created_at = time::now()
+      `, {
+        agent_def_id, project, issue_number, issue_title: issue_title || '',
+        branch_name: branch,
+      } as Record<string, unknown>);
+
+      // 7. Build task description with issue context
+      const taskDescription = [
+        `Risolvi GitHub issue #${issue_number}: ${issue_title}`,
+        `Branch: ${branch}`,
+        issueBody ? `\nDescrizione issue:\n${issueBody.slice(0, 2000)}` : '',
+        `\nQuando hai finito, committa le modifiche con un messaggio che referenzia l'issue (#${issue_number}).`,
+      ].join('\n');
+
+      // 8. Dispatch via orchestrator
+      if (orchestrator) {
+        orchestrator.input(taskDescription, project);
+        broadcast('log', { text: `[GitHub] Agent "${agentDef.name}" assigned to #${issue_number} on branch ${branch}`, cls: 'event' });
+      }
+
+      jsonResponse(res, { ok: true, branch, agent: agentDef.name });
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 500);
+    }
+    return;
+  }
+
+  if (path === '/api/github/assignments') {
+    const project = query.project as string;
+    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
+    try {
+      const assignRes = await surqlQuery(
+        `SELECT * FROM agent_issue_assignment WHERE project = $project ORDER BY created_at DESC`,
+        { project }
+      );
+      const result = assignRes[0]?.result;
+      jsonResponse(res, Array.isArray(result) ? result : []);
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 500);
     }
     return;
   }
