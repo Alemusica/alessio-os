@@ -17,8 +17,8 @@
 
 import { surqlQuery } from './surreal-bridge.js';
 import { formatPti, type PtiAst, type PtiFatto, type PtiDerivato, type PtiSalto } from './parser.js';
-import { writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { writeFileSync, mkdirSync, readFileSync, readdirSync, statSync, existsSync } from 'fs';
+import { join, relative } from 'path';
 
 // ==================== TIPI ====================
 
@@ -295,6 +295,145 @@ function sanitizeId(name: string): string {
     .toLowerCase();
 }
 
+// ==================== CODEBASE ANALYSIS ====================
+
+interface ModuleInfo {
+  file: string;
+  lines: number;
+  imports: string[];      // relative import paths
+  exports: string[];      // exported names
+  level: string;          // atomo|molecola|cellula|tessuto|organo
+}
+
+function collectTsFiles(dir: string, rootDir: string): string[] {
+  const results: string[] = [];
+  try {
+    const entries = readdirSync(dir);
+    for (const entry of entries) {
+      if (entry.startsWith('.') || entry === 'node_modules' || entry === 'dist') continue;
+      const full = join(dir, entry);
+      const st = statSync(full);
+      if (st.isDirectory()) {
+        results.push(...collectTsFiles(full, rootDir));
+      } else if (entry.endsWith('.ts') && !entry.endsWith('.d.ts')) {
+        results.push(relative(rootDir, full));
+      }
+    }
+  } catch { /* skip unreadable dirs */ }
+  return results;
+}
+
+function analyzeModule(rootDir: string, relPath: string): ModuleInfo {
+  const content = readFileSync(join(rootDir, relPath), 'utf-8');
+  const lines = content.split('\n').length;
+
+  // Extract imports (relative only)
+  const imports: string[] = [];
+  const importRe = /from\s+['"](\.[^'"]+)['"]/g;
+  let m;
+  while ((m = importRe.exec(content)) !== null) {
+    imports.push(m[1].replace(/\.js$/, ''));
+  }
+
+  // Extract exports
+  const exports: string[] = [];
+  const exportRe = /export\s+(?:async\s+)?(?:function|class|const|let|type|interface|enum)\s+(\w+)/g;
+  while ((m = exportRe.exec(content)) !== null) {
+    exports.push(m[1]);
+  }
+
+  // Classify level by dependency count
+  const depCount = imports.length;
+  let level: string;
+  if (depCount === 0) level = 'atomo';
+  else if (depCount <= 2) level = 'molecola';
+  else if (depCount <= 4) level = 'cellula';
+  else if (depCount <= 6) level = 'tessuto';
+  else level = 'organo';
+
+  return { file: relPath, lines, imports, exports, level };
+}
+
+export function analyzeCodebase(rootDir: string): ModuleInfo[] {
+  const files = collectTsFiles(join(rootDir, 'src'), rootDir);
+  return files.map(f => analyzeModule(rootDir, f)).sort((a, b) => b.lines - a.lines);
+}
+
+// ==================== MANUAL SECTION PRESERVATION ====================
+
+const MANUAL_START = '# === MANUAL START ===';
+const MANUAL_END = '# === MANUAL END ===';
+
+function extractManualSection(existingPti: string): string | null {
+  const startIdx = existingPti.indexOf(MANUAL_START);
+  const endIdx = existingPti.indexOf(MANUAL_END);
+  if (startIdx === -1 || endIdx === -1) return null;
+  return existingPti.slice(startIdx, endIdx + MANUAL_END.length);
+}
+
+// ==================== UNIFIED .PTI GENERATION ====================
+
+export async function generateUnifiedPti(project: string, rootDir: string, existingPtiPath?: string): Promise<string> {
+  // 1. DB registry
+  const registry = await generateRegistry(project);
+
+  // 2. Codebase analysis
+  const modules = analyzeCodebase(rootDir);
+
+  // 3. Build codebase section
+  const totalLines = modules.reduce((s, m) => s + m.lines, 0);
+  const byLevel = new Map<string, number>();
+  for (const m of modules) byLevel.set(m.level, (byLevel.get(m.level) ?? 0) + 1);
+
+  let codeSection = '\n# ==================== CODEBASE ====================\n\n';
+  codeSection += `# Moduli: ${modules.length} | Righe totali: ${totalLines}\n`;
+  codeSection += `# Livelli: ${Array.from(byLevel.entries()).map(([k, v]) => `${k}(${v})`).join(', ')}\n\n`;
+
+  for (const mod of modules) {
+    const id = sanitizeId(mod.file.replace(/\//g, '.').replace(/\.ts$/, ''));
+    codeSection += `modulo.${id} = "${mod.file}" # ${mod.lines} righe, ${mod.level}\n`;
+    if (mod.exports.length > 0) {
+      codeSection += `modulo.${id}.esporta = [${mod.exports.slice(0, 5).map(e => `"${e}"`).join(', ')}]\n`;
+    }
+  }
+
+  // Dependency graph
+  codeSection += '\n# --- Dipendenze (salti) ---\n';
+  for (const mod of modules) {
+    for (const imp of mod.imports) {
+      const targetFile = modules.find(m =>
+        m.file.endsWith(imp.replace(/^\.\//, '') + '.ts') ||
+        m.file.endsWith(imp + '.ts')
+      );
+      if (targetFile) {
+        const fromId = sanitizeId(mod.file.replace(/\//g, '.').replace(/\.ts$/, ''));
+        const toId = sanitizeId(targetFile.file.replace(/\//g, '.').replace(/\.ts$/, ''));
+        codeSection += `modulo.${fromId} → modulo.${toId}\n`;
+      }
+    }
+  }
+
+  // 4. Preserve manual section
+  let manualSection = '';
+  if (existingPtiPath && existsSync(existingPtiPath)) {
+    const existing = readFileSync(existingPtiPath, 'utf-8');
+    const manual = extractManualSection(existing);
+    if (manual) {
+      manualSection = '\n\n' + manual + '\n';
+    }
+  }
+  if (!manualSection) {
+    manualSection = `\n\n${MANUAL_START}\n\n# Assert architetturali\n# assert: dashboard.server.righe < 1200\n# assert: ogni_modulo.dipendenze.length < 6\n\n# Annotazioni\n# (aggiungi qui vincoli e note architetturali)\n\n${MANUAL_END}\n`;
+  }
+
+  // 5. Compose
+  return `# ${project}.pti — Registry strutturale\n# Generato: ${new Date().toISOString()}\n\n` +
+    '# ==================== DB REGISTRY ====================\n\n' +
+    registry.ptiSource +
+    codeSection +
+    manualSection;
+}
+
 // ==================== SALVA SU DISCO ====================
 
 const REGISTRY_DIR = join(process.env.HOME ?? '', '.alessio-os', 'registries');
@@ -307,17 +446,34 @@ export async function saveRegistry(project: string): Promise<string> {
   return filePath;
 }
 
+export async function saveUnifiedPti(project: string, rootDir: string): Promise<string> {
+  const outputPath = join(rootDir, `${project}.pti`);
+  const ptiContent = await generateUnifiedPti(project, rootDir, outputPath);
+  writeFileSync(outputPath, ptiContent, 'utf-8');
+  return outputPath;
+}
+
 // ==================== CLI ====================
 
 if (process.argv[1]?.includes('registry')) {
   const project = process.argv[2] ?? 'alessio-os';
-  console.log(`[registry] Generando .pti per "${project}"...`);
-  generateRegistry(project)
-    .then(reg => {
-      console.log(reg.ptiSource);
-      console.log(`\n--- ${reg.ast.fatti.length} fatti, ${reg.ast.derivati.length} derivati, ${reg.ast.salti.length} salti ---`);
-      return saveRegistry(project);
-    })
-    .then(path => console.log(`[registry] Salvato: ${path}`))
-    .catch(console.error);
+  const rootDir = process.argv[3] ?? process.cwd();
+  const unified = process.argv.includes('--unified');
+
+  if (unified) {
+    console.log(`[registry] Generando .pti unificato per "${project}" (root: ${rootDir})...`);
+    saveUnifiedPti(project, rootDir)
+      .then(path => console.log(`[registry] Salvato: ${path}`))
+      .catch(console.error);
+  } else {
+    console.log(`[registry] Generando .pti per "${project}"...`);
+    generateRegistry(project)
+      .then(reg => {
+        console.log(reg.ptiSource);
+        console.log(`\n--- ${reg.ast.fatti.length} fatti, ${reg.ast.derivati.length} derivati, ${reg.ast.salti.length} salti ---`);
+        return saveRegistry(project);
+      })
+      .then(path => console.log(`[registry] Salvato: ${path}`))
+      .catch(console.error);
+  }
 }

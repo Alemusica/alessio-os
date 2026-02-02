@@ -1,0 +1,94 @@
+# alessio-os.pti — Registry strutturale
+# Generato: 2026-02-01T11:59:02.583Z
+
+# ==================== DB REGISTRY ====================
+
+# Fatti
+progetto.nome = "alessio-os"
+progetto.sessioni = 1
+progetto.esperienze = 0
+progetto.generato = "2026-02-01T11:59:02.567Z"
+sessione.ultima = "dashboard-live"
+sessione.ultima.messaggi = 12
+tasks.completati = 6
+
+# Derivati
+topic.dimmi := 1 sessioni, dimmi
+topic.ciao := 1 sessioni, ciao
+topic.parole := 1 sessioni, parole
+
+# ==================== CODEBASE ====================
+
+# Moduli: 18 | Righe totali: 7277
+# Livelli: atomo(9), organo(1), cellula(2), molecola(6)
+
+modulo.src.dashboard.tokens.css = "src/dashboard/tokens.css.ts" # 1059 righe, atomo
+modulo.src.dashboard.tokens.css.esporta = ["css"]
+modulo.src.pti.graph = "src/pti/graph.ts" # 918 righe, atomo
+modulo.src.pti.graph.esporta = ["DeltaValore", "DeltaLista", "DeltaMappa", "Delta", "isDeltaValore"]
+modulo.src.dashboard.state.js = "src/dashboard/state.js.ts" # 852 righe, atomo
+modulo.src.dashboard.state.js.esporta = ["stateJs"]
+modulo.src.dashboard.server = "src/dashboard/server.ts" # 602 righe, organo
+modulo.src.dashboard.server.esporta = ["startDashboard", "dashboardLog"]
+modulo.src.agents.orchestrator = "src/agents/orchestrator.ts" # 601 righe, cellula
+modulo.src.agents.orchestrator.esporta = ["OrchestratorConfig", "Orchestrator"]
+modulo.src.dashboard.aos-rytmo.js = "src/dashboard/aos-rytmo.js.ts" # 483 righe, atomo
+modulo.src.dashboard.aos-rytmo.js.esporta = ["aosJs"]
+modulo.src.pti.registry = "src/pti/registry.ts" # 480 righe, molecola
+modulo.src.pti.registry.esporta = ["ProjectRegistry", "generateRegistry", "analyzeCodebase", "generateUnifiedPti", "saveRegistry"]
+modulo.src.pti.parser = "src/pti/parser.ts" # 359 righe, atomo
+modulo.src.pti.parser.esporta = ["PtiFatto", "PtiDerivato", "PtiSalto", "PtiAzione", "PtiNodo"]
+modulo.src.agents.context-builder = "src/agents/context-builder.ts" # 316 righe, molecola
+modulo.src.agents.context-builder.esporta = ["AgentRole", "ContextRequest", "BuiltContext", "buildContext", "detectProject"]
+modulo.src.dashboard.layout.html = "src/dashboard/layout.html.ts" # 268 righe, atomo
+modulo.src.dashboard.layout.html.esporta = ["dashboardPage"]
+modulo.src.dashboard.graph-view.js = "src/dashboard/graph-view.js.ts" # 259 righe, atomo
+modulo.src.dashboard.graph-view.js.esporta = ["graphJs"]
+modulo.src.pti.surreal-bridge = "src/pti/surreal-bridge.ts" # 231 righe, atomo
+modulo.src.pti.surreal-bridge.esporta = ["SurrealResponse", "surqlQuery", "upsertAgentState", "getIdleAgents", "createTask"]
+modulo.src.hooks.auto-save = "src/hooks/auto-save.ts" # 226 righe, molecola
+modulo.src.pti.diff = "src/pti/diff.ts" # 206 righe, molecola
+modulo.src.pti.diff.esporta = ["NodoSnapshot", "DiffNodo", "DiffConnessione", "DiffStrutturale", "diffStrutturale"]
+modulo.src.pti.graph-persistence = "src/pti/graph-persistence.ts" # 163 righe, molecola
+modulo.src.pti.graph-persistence.esporta = ["syncTopology", "attachDeltaLogger", "saveSnapshot", "getTopologyFromDB", "getDeltaHistory"]
+modulo.src.tools.ocr-mcp = "src/tools/ocr-mcp.ts" # 105 righe, atomo
+modulo.src.tools.ocr-mcp.esporta = ["ocr", "ocrToolDefinition", "handleOcrTool"]
+modulo.src.index = "src/index.ts" # 93 righe, cellula
+modulo.src.health = "src/health.ts" # 56 righe, molecola
+
+# --- Dipendenze (salti) ---
+modulo.src.dashboard.server → modulo.src.dashboard.tokens.css
+modulo.src.dashboard.server → modulo.src.dashboard.layout.html
+modulo.src.dashboard.server → modulo.src.dashboard.aos-rytmo.js
+modulo.src.dashboard.server → modulo.src.dashboard.state.js
+modulo.src.dashboard.server → modulo.src.dashboard.graph-view.js
+modulo.src.agents.orchestrator → modulo.src.agents.context-builder
+modulo.src.agents.orchestrator → modulo.src.agents.context-builder
+modulo.src.pti.registry → modulo.src.pti.surreal-bridge
+modulo.src.pti.registry → modulo.src.pti.parser
+modulo.src.pti.diff → modulo.src.pti.graph
+modulo.src.pti.graph-persistence → modulo.src.pti.surreal-bridge
+modulo.src.pti.graph-persistence → modulo.src.pti.graph
+modulo.src.index → modulo.src.agents.orchestrator
+modulo.src.index → modulo.src.pti.surreal-bridge
+modulo.src.index → modulo.src.tools.ocr-mcp
+modulo.src.index → modulo.src.dashboard.server
+modulo.src.health → modulo.src.pti.surreal-bridge
+
+
+# === MANUAL START ===
+
+# Assert architetturali
+assert: dashboard.server.righe < 1200    # dopo decomposizione
+assert: ogni_modulo.dipendenze.length < 6
+assert: count(moduli WHERE tipo == "organo") <= 3
+assert: pti.graph.dipendenze.length == 0  # graph.ts e' foglia pura
+
+# Annotazioni
+# server.ts: dopo decomposizione Step 1, resta solo HTTP + API (~601 righe)
+# 5 tessuti estratti: tokens.css.ts, layout.html.ts, state.js.ts, aos-rytmo.js.ts, graph-view.js.ts
+# Il PTI runtime (graph.ts) non ha dipendenze: e' la foglia piu' pura
+# Ogni tessuto esporta stringa, server.ts li compone come derivati
+# diff.ts esiste e ha 6 test, ma nessun endpoint lo espone (Step 5 del piano)
+
+# === MANUAL END ===
