@@ -790,6 +790,70 @@ export const css = `
   .agent:last-child { border-bottom: none; }
   .agent:hover { color: var(--accent); }
   .agent .status { width: var(--s1); height: var(--s1); border-radius: 50%; flex-shrink: 0; }
+  /* ── AGENT DEFINITIONS — persistent cards ── */
+  .agent-def {
+    padding: var(--s1) var(--s2);
+    border-bottom: 1px solid var(--border);
+    cursor: grab;
+    transition: background 0.15s ease;
+  }
+  .agent-def:hover { background: var(--accent-bg); }
+  .agent-def:active { cursor: grabbing; }
+  .agent-def.inactive { opacity: 0.5; }
+  .ad-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s1);
+  }
+  .ad-name {
+    font-family: var(--mono);
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text);
+  }
+  .ad-role {
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .ad-identity {
+    font-size: var(--fs-xs);
+    color: var(--dim);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ad-actions {
+    display: flex;
+    gap: var(--s1);
+    margin-top: 4px;
+  }
+  .btn-inline {
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+    color: var(--accent);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--s0);
+    padding: 2px var(--s1);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn-inline:hover { border-color: var(--accent); background: var(--accent-bg); }
+  .btn-tiny {
+    font-family: var(--mono);
+    font-size: 8px;
+    color: var(--dim);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+  }
+  .btn-tiny:hover { color: var(--accent); }
+
   .status-working { background: var(--green); box-shadow: 0 0 6px var(--green); }
   .status-idle { background: var(--border-strong); }
   .status-blocked { background: var(--rose); }

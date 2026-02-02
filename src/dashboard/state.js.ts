@@ -71,6 +71,7 @@ function switchView(name) {
   });
   // Lazy-load views on first switch
   if (name === 'timeline') loadTimeline(true);
+  if (name === 'agents' && S.project) loadAgentDefinitions(S.project);
   if (name === 'mcp') loadMcpStatus();
   if (name === 'graph' && typeof GraphRenderer !== 'undefined') {
     var sel = document.getElementById('graph-project-select');
@@ -105,6 +106,8 @@ function selectProject(name) {
     // Re-trigger current view to reload with new project context
     switchView(S.view);
   }
+  // Load agent definitions for the selected project
+  if (S.view === 'agents') loadAgentDefinitions(name);
   updateBreadcrumb();
   // Swift wrapper: update title bar
   alessioOSBridge('setTitle', { title: name });
@@ -322,6 +325,134 @@ function renderAgentsStrip(agents) {
       (task ? '<span class="as-task">' + esc(task) + '</span>' : '') +
     '</div>';
   }).join('');
+}
+
+// ── AGENT DEFINITIONS (persistent, per-project) ──
+
+var agentDefs = [];
+
+async function loadAgentDefinitions(project) {
+  if (!project) return;
+  try {
+    var res = await fetch('/api/agents/definitions?project=' + encodeURIComponent(project));
+    agentDefs = await res.json();
+    renderAgentDefinitions(agentDefs);
+  } catch (err) {
+    console.error('loadAgentDefinitions:', err);
+  }
+}
+
+function renderAgentDefinitions(defs) {
+  var el = document.getElementById('agent-defs-list');
+  var countEl = document.getElementById('agent-def-count');
+  if (countEl) countEl.textContent = defs.length;
+  if (!el) return;
+  if (!defs.length) {
+    el.innerHTML = '<div class="empty" style="padding:var(--s2)">Nessun agente definito</div>';
+    return;
+  }
+  el.innerHTML = defs.map(function(d) {
+    var active = d.is_active !== false;
+    var paradigmBadge = d.paradigm_id ? '<span class="badge badge-pending" style="font-size:7px">' + esc(d.paradigm_id) + '</span>' : '';
+    return '<div class="agent-def' + (active ? '' : ' inactive') + '" draggable="true" data-agent-def-id="' + esc(d.agent_def_id) + '" ' +
+      'ondragstart="dragAgentDef(event, ' + "'" + esc(d.agent_def_id) + "'" + ', ' + "'" + esc(d.name) + "'" + ', ' + "'" + esc(d.role) + "'" + ')">' +
+      '<div class="ad-header">' +
+        '<span class="ad-name">' + esc(d.name) + '</span>' +
+        '<span class="ad-role">' + esc(d.role) + '</span>' +
+        paradigmBadge +
+      '</div>' +
+      (d.custom_identity ? '<div class="ad-identity">' + esc(d.custom_identity).slice(0, 80) + '</div>' : '') +
+      '<div class="ad-actions">' +
+        '<button class="btn-tiny" onclick="toggleAgentActive(' + "'" + esc(d.agent_def_id) + "'" + ', ' + !active + ')">' + (active ? 'Disattiva' : 'Attiva') + '</button>' +
+        '<button class="btn-tiny" style="color:var(--rose)" onclick="deleteAgentDef(' + "'" + esc(d.agent_def_id) + "'" + ')">Elimina</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function toggleAgentForm() {
+  var form = document.getElementById('agent-form');
+  var visible = form.style.display !== 'none';
+  form.style.display = visible ? 'none' : 'block';
+  if (!visible) loadParadigmSelect();
+}
+
+async function loadParadigmSelect() {
+  var sel = document.getElementById('adf-paradigm');
+  try {
+    var res = await fetch('/api/paradigms');
+    var paradigms = await res.json();
+    sel.innerHTML = '<option value="">Paradigma progetto (default)</option>' +
+      paradigms.map(function(p) {
+        return '<option value="' + esc(p.paradigm_id) + '">' + esc(p.name) + ' v' + esc(p.version) + '</option>';
+      }).join('');
+  } catch (err) {
+    sel.innerHTML = '<option value="">PTI v4.1 (default)</option>';
+  }
+}
+
+async function createAgentDef() {
+  var name = document.getElementById('adf-name').value.trim();
+  var role = document.getElementById('adf-role').value;
+  var identity = document.getElementById('adf-identity').value.trim();
+  var paradigm = document.getElementById('adf-paradigm').value;
+  if (!name) { addLog('Nome agente richiesto', 'error'); return; }
+
+  try {
+    var project = S.project || 'alessio-os';
+    var res = await fetch('/api/agents/definitions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project: project,
+        name: name,
+        role: role,
+        custom_identity: identity || undefined,
+        paradigm_id: paradigm || undefined,
+        tags: [],
+        is_active: true
+      })
+    });
+    var result = await res.json();
+    addLog('Agente "' + name + '" creato: ' + result.agent_def_id, 'event');
+    document.getElementById('agent-form').style.display = 'none';
+    document.getElementById('adf-name').value = '';
+    document.getElementById('adf-identity').value = '';
+    loadAgentDefinitions(project);
+  } catch (err) {
+    addLog('Errore creazione agente: ' + err, 'error');
+  }
+}
+
+async function toggleAgentActive(id, active) {
+  try {
+    await fetch('/api/agents/definitions?id=' + encodeURIComponent(id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: active })
+    });
+    loadAgentDefinitions(S.project);
+  } catch (err) {
+    addLog('Errore toggle agente: ' + err, 'error');
+  }
+}
+
+async function deleteAgentDef(id) {
+  if (!confirm('Eliminare agente?')) return;
+  try {
+    await fetch('/api/agents/definitions?id=' + encodeURIComponent(id), { method: 'DELETE' });
+    addLog('Agente eliminato', 'event');
+    loadAgentDefinitions(S.project);
+  } catch (err) {
+    addLog('Errore eliminazione: ' + err, 'error');
+  }
+}
+
+function dragAgentDef(e, id, name, role) {
+  e.dataTransfer.setData('application/x-agent-def', JSON.stringify({
+    agent_def_id: id, name: name, role: role
+  }));
+  e.dataTransfer.effectAllowed = 'copy';
 }
 
 // ── TASKS ──

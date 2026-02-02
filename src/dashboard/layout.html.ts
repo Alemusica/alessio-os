@@ -179,7 +179,29 @@ ${opts.css}
     <!-- AGENTS VIEW -->
     <div id="agents-view" class="view">
       <div class="view-scroll">
-        <div class="section-title">Agenti <span class="count" id="agent-count">0</span></div>
+        <div class="section-title">Agenti Definiti <span class="count" id="agent-def-count">0</span>
+          <button class="btn-inline" onclick="toggleAgentForm()">+ Nuovo</button>
+        </div>
+        <div id="agent-form" style="display:none;padding:var(--s2);border:1px solid var(--border);border-radius:var(--s1);margin-bottom:var(--s2)">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s1)">
+            <input id="adf-name" placeholder="Nome agente" class="cmd-input" style="height:var(--row)">
+            <select id="adf-role" class="cmd-input" style="height:var(--row)">
+              <option value="coder">coder</option>
+              <option value="tester">tester</option>
+              <option value="reviewer">reviewer</option>
+              <option value="researcher">researcher</option>
+              <option value="auditor">auditor</option>
+            </select>
+          </div>
+          <textarea id="adf-identity" placeholder="Identit\u00e0 custom (opzionale)" class="cmd-input" style="height:55px;margin-top:var(--s1);resize:vertical"></textarea>
+          <div style="display:flex;gap:var(--s1);margin-top:var(--s1)">
+            <select id="adf-paradigm" class="cmd-input" style="height:var(--row);flex:1"></select>
+            <button class="btn-inline" onclick="createAgentDef()">Crea</button>
+            <button class="btn-inline" onclick="toggleAgentForm()" style="color:var(--dim)">Annulla</button>
+          </div>
+        </div>
+        <div id="agent-defs-list"></div>
+        <div class="section-title" style="margin-top:var(--s3)">In Esecuzione <span class="count" id="agent-count">0</span></div>
         <div id="agents-list"><div class="empty">Nessun agente attivo</div></div>
       </div>
     </div>

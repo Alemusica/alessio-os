@@ -147,6 +147,24 @@ DEFINE FUNCTION IF NOT EXISTS fn::pti_topology($gid: string) {
     };
 };
 
+-- ==================== AGENT DEFINITIONS (persistent, per-project) ====================
+
+DEFINE TABLE IF NOT EXISTS agent_definition SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS agent_def_id ON agent_definition TYPE string;
+DEFINE FIELD IF NOT EXISTS project ON agent_definition TYPE string;
+DEFINE FIELD IF NOT EXISTS name ON agent_definition TYPE string;
+DEFINE FIELD IF NOT EXISTS role ON agent_definition TYPE string;
+DEFINE FIELD IF NOT EXISTS custom_identity ON agent_definition TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS paradigm_id ON agent_definition TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS mcp_config ON agent_definition FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS tags ON agent_definition TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS is_active ON agent_definition TYPE bool DEFAULT true;
+DEFINE FIELD IF NOT EXISTS created_at ON agent_definition TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated_at ON agent_definition TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_agent_def_id ON agent_definition FIELDS agent_def_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_agent_def_project ON agent_definition FIELDS project;
+
 -- ==================== PARADIGM REGISTRY ====================
 -- Dischetti swappabili: ogni paradigma è un set di istruzioni per agenti
 

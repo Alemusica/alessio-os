@@ -20,6 +20,7 @@ import { diffStrutturale, type NodoSnapshot } from '../pti/diff.js';
 import { analyzeCodebase } from '../pti/registry.js';
 import { PTI_MANIFESTO, PTI_VERSION } from '../pti/manifesto.js';
 import { listParadigms, getParadigm, createParadigm, deleteParadigm, assignParadigm, getAssignment, removeAssignment, seedDefaultParadigm } from '../pti/paradigm-registry.js';
+import { listAgentDefinitions, getAgentDefinition, createAgentDefinition, updateAgentDefinition, deleteAgentDefinition } from '../agents/agent-definitions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, '..', '..');
@@ -740,6 +741,58 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       jsonResponse(res, { ok: true });
     } catch (err) {
       jsonResponse(res, { error: String(err) }, 500);
+    }
+    return;
+  }
+
+  // ==================== AGENT DEFINITIONS API ====================
+
+  if (path === '/api/agents/definitions' && req.method === 'GET') {
+    const project = query.project as string;
+    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
+    try {
+      const defs = await listAgentDefinitions(project);
+      jsonResponse(res, defs);
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 500);
+    }
+    return;
+  }
+
+  if (path === '/api/agents/definitions' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const data = JSON.parse(body);
+      const id = await createAgentDefinition(data);
+      jsonResponse(res, { agent_def_id: id });
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 400);
+    }
+    return;
+  }
+
+  if (path === '/api/agents/definitions' && req.method === 'PUT') {
+    const id = query.id as string;
+    if (!id) { jsonResponse(res, { error: 'Missing id' }, 400); return; }
+    try {
+      const body = await readBody(req);
+      const data = JSON.parse(body);
+      await updateAgentDefinition(id, data);
+      jsonResponse(res, { ok: true });
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 400);
+    }
+    return;
+  }
+
+  if (path === '/api/agents/definitions' && req.method === 'DELETE') {
+    const id = query.id as string;
+    if (!id) { jsonResponse(res, { error: 'Missing id' }, 400); return; }
+    try {
+      await deleteAgentDefinition(id);
+      jsonResponse(res, { ok: true });
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 400);
     }
     return;
   }
