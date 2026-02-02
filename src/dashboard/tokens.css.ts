@@ -915,6 +915,68 @@ export const css = `
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
   }
+
+  /* ── GITHUB CARDS ── */
+  .gh-card {
+    padding: var(--s1) var(--s2);
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s ease;
+  }
+  .gh-card:hover { background: var(--accent-bg); }
+  .gh-card:last-child { border-bottom: none; }
+  .gh-card.drop-target {
+    background: var(--green-bg);
+    border-left: 3px solid var(--green);
+  }
+  .gh-card-header {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s1);
+  }
+  .gh-number {
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+    color: var(--dim);
+    flex-shrink: 0;
+  }
+  .gh-title {
+    font-size: var(--fs-sm);
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .gh-card-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--s1);
+    margin-top: 2px;
+    flex-wrap: wrap;
+  }
+  .gh-label {
+    font-family: var(--mono);
+    font-size: 7px;
+    color: var(--accent);
+    background: var(--accent-bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .gh-author {
+    font-size: var(--fs-2xs);
+    color: var(--dim);
+  }
+  .gh-time {
+    font-size: var(--fs-2xs);
+    color: var(--dim);
+    font-family: var(--mono);
+  }
+  .gh-branch {
+    font-family: var(--mono);
+    font-size: var(--fs-2xs);
+    color: var(--blue);
+  }
   .agent .role {
     font-family: var(--mono); font-size: var(--fs-xs); color: var(--accent);
     letter-spacing: 0.06em; text-transform: uppercase; min-width: var(--s5);

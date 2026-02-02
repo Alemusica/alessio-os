@@ -21,6 +21,7 @@ import { analyzeCodebase } from '../pti/registry.js';
 import { PTI_MANIFESTO, PTI_VERSION } from '../pti/manifesto.js';
 import { listParadigms, getParadigm, createParadigm, deleteParadigm, assignParadigm, getAssignment, removeAssignment, seedDefaultParadigm } from '../pti/paradigm-registry.js';
 import { listAgentDefinitions, getAgentDefinition, createAgentDefinition, updateAgentDefinition, deleteAgentDefinition } from '../agents/agent-definitions.js';
+import { resolveRepo, getIssues, getPRs, getDiscussions, getGithubConfig, setGithubConfig } from '../integrations/github.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, '..', '..');
@@ -741,6 +742,74 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       jsonResponse(res, { ok: true });
     } catch (err) {
       jsonResponse(res, { error: String(err) }, 500);
+    }
+    return;
+  }
+
+  // ==================== GITHUB API ====================
+
+  if (path === '/api/github/issues') {
+    const project = query.project as string;
+    const state = (query.state as string) || 'open';
+    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
+    try {
+      const repo = await resolveRepo(project);
+      if (!repo) { jsonResponse(res, []); return; }
+      jsonResponse(res, getIssues(repo, state));
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 500);
+    }
+    return;
+  }
+
+  if (path === '/api/github/prs') {
+    const project = query.project as string;
+    const state = (query.state as string) || 'open';
+    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
+    try {
+      const repo = await resolveRepo(project);
+      if (!repo) { jsonResponse(res, []); return; }
+      jsonResponse(res, getPRs(repo, state));
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 500);
+    }
+    return;
+  }
+
+  if (path === '/api/github/discussions') {
+    const project = query.project as string;
+    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
+    try {
+      const repo = await resolveRepo(project);
+      if (!repo) { jsonResponse(res, []); return; }
+      jsonResponse(res, getDiscussions(repo));
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 500);
+    }
+    return;
+  }
+
+  if (path === '/api/github/config' && req.method === 'GET') {
+    const project = query.project as string;
+    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
+    try {
+      const config = await getGithubConfig(project);
+      const repo = await resolveRepo(project);
+      jsonResponse(res, config ?? { repo: repo ?? '', default_branch: 'main' });
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 500);
+    }
+    return;
+  }
+
+  if (path === '/api/github/config' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const data = JSON.parse(body);
+      await setGithubConfig(data.project, data.repo, data.default_branch);
+      jsonResponse(res, { ok: true });
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 400);
     }
     return;
   }

@@ -144,6 +144,7 @@ ${opts.css}
         <span class="vt-sep">|</span>
         <span class="view-tab" data-view="kb" onclick="switchView('kb')">KB</span>
         <span class="vt-sep">|</span>
+        <span class="view-tab" data-view="github" onclick="switchView('github')">GitHub</span>
         <span class="view-tab" data-view="mcp" onclick="switchView('mcp')">MCP</span>
         <span class="vt-sep">|</span>
         <span class="view-tab" data-view="graph" onclick="switchView('graph')">Graph</span>
@@ -235,6 +236,29 @@ ${opts.css}
         <div class="section-title">Timeline <span class="count" id="tl-count">tutte le chat</span></div>
         <div id="timeline-list"></div>
         <button class="tl-load-more" id="tl-load-more" onclick="loadMoreTimeline()">Carica altri</button>
+      </div>
+    </div>
+
+    <!-- GITHUB VIEW -->
+    <div id="github-view" class="view">
+      <div class="view-scroll">
+        <div class="section-title">GitHub
+          <button class="btn-inline" onclick="toggleGhConfig()">Config</button>
+          <button class="btn-inline" onclick="loadGitHubData(S.project)">Refresh</button>
+        </div>
+        <div id="gh-config" style="display:none;padding:var(--s2);border:1px solid var(--border);border-radius:var(--s1);margin-bottom:var(--s2)">
+          <div style="display:flex;gap:var(--s1);align-items:center">
+            <input id="gh-repo" placeholder="owner/repo" class="cmd-input" style="height:var(--row);flex:1">
+            <input id="gh-branch" placeholder="main" class="cmd-input" style="height:var(--row);width:80px" value="main">
+            <button class="btn-inline" onclick="saveGhConfig()">Salva</button>
+          </div>
+        </div>
+        <div class="section-title" style="font-size:var(--fs-xs)">Issues <span class="count" id="gh-issues-count">0</span></div>
+        <div id="gh-issues-list"></div>
+        <div class="section-title" style="font-size:var(--fs-xs);margin-top:var(--s2)">Pull Requests <span class="count" id="gh-prs-count">0</span></div>
+        <div id="gh-prs-list"></div>
+        <div class="section-title" style="font-size:var(--fs-xs);margin-top:var(--s2)">Discussions <span class="count" id="gh-discussions-count">0</span></div>
+        <div id="gh-discussions-list"></div>
       </div>
     </div>
 

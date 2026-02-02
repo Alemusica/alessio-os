@@ -147,6 +147,16 @@ DEFINE FUNCTION IF NOT EXISTS fn::pti_topology($gid: string) {
     };
 };
 
+-- ==================== PROJECT GITHUB CONFIG ====================
+
+DEFINE TABLE IF NOT EXISTS project_github SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS project ON project_github TYPE string;
+DEFINE FIELD IF NOT EXISTS repo ON project_github TYPE string;
+DEFINE FIELD IF NOT EXISTS default_branch ON project_github TYPE string DEFAULT 'main';
+DEFINE FIELD IF NOT EXISTS created_at ON project_github TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_project_github ON project_github FIELDS project UNIQUE;
+
 -- ==================== AGENT DEFINITIONS (persistent, per-project) ====================
 
 DEFINE TABLE IF NOT EXISTS agent_definition SCHEMAFULL;
