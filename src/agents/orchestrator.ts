@@ -483,6 +483,7 @@ export class Orchestrator {
     const args: string[] = [
       '--mcp-config', '{"mcpServers":{}}', // nessun MCP server
       '--strict-mcp-config',      // ignora config globale
+      '--allowedTools', 'Read,Write,Edit,Bash,Glob,Grep,WebSearch,WebFetch',  // abilita tool essenziali + ricerca web
     ];
     if (systemPrompt) {
       args.push('--system-prompt', systemPrompt);
