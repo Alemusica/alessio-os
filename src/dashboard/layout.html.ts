@@ -233,9 +233,17 @@ ${opts.css}
     <!-- TIMELINE VIEW -->
     <div id="timeline-view" class="view">
       <div class="view-scroll" id="timeline-scroll">
-        <div class="section-title">Timeline <span class="count" id="tl-count">tutte le chat</span></div>
-        <div id="timeline-list"></div>
-        <button class="tl-load-more" id="tl-load-more" onclick="loadMoreTimeline()">Carica altri</button>
+        <div class="section-title">Timeline
+          <span class="tl-mode-tabs">
+            <span class="tl-mode active" data-mode="actions" onclick="switchTimelineMode('actions')">Actions</span>
+            <span class="tl-mode" data-mode="chat" onclick="switchTimelineMode('chat')">Chat</span>
+          </span>
+        </div>
+        <div id="actions-timeline"></div>
+        <div id="chat-timeline" style="display:none">
+          <div id="timeline-list"></div>
+          <button class="tl-load-more" id="tl-load-more" onclick="loadMoreTimeline()">Carica altri</button>
+        </div>
       </div>
     </div>
 

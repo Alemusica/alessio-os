@@ -1444,4 +1444,81 @@ export const css = `
   .night-toggle:hover { border-color: var(--accent-light); background: var(--accent-bg); }
   .night .night-toggle { background: var(--accent); color: #1C1A17; border-color: var(--accent); }
   .night .night-toggle:hover { background: var(--accent-light); }
+
+  /* ── TIMELINE MODE TABS ── */
+  .tl-mode-tabs {
+    display: flex;
+    gap: var(--s2);
+    margin-bottom: var(--s3);
+  }
+  .tl-mode {
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+    color: var(--dim);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: var(--s1) var(--s2);
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: all 0.15s ease;
+  }
+  .tl-mode:hover { color: var(--text); }
+  .tl-mode.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    font-weight: 500;
+  }
+
+  /* ── ACTION ENTRIES ── */
+  .action-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--s2);
+    padding: var(--s1) 0;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s ease;
+  }
+  .action-entry:last-child { border-bottom: none; }
+  .action-entry:hover { background: var(--accent-bg); }
+  .action-entry-new {
+    animation: action-fadein 0.4s ease-out;
+  }
+  @keyframes action-fadein {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .action-icon {
+    font-size: var(--fs-body);
+    width: var(--s3);
+    text-align: center;
+    flex-shrink: 0;
+    line-height: calc(var(--fs-sm) * var(--phi));
+  }
+  .action-content {
+    flex: 1;
+    min-width: 0;
+  }
+  .action-title {
+    font-size: var(--fs-sm);
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .action-details {
+    font-size: var(--fs-xs);
+    color: var(--text-secondary);
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .action-meta {
+    font-family: var(--mono);
+    font-size: var(--fs-2xs);
+    color: var(--dim);
+    margin-top: 2px;
+  }
 `;

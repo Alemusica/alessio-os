@@ -70,7 +70,10 @@ function switchView(name) {
     t.classList.toggle('active', t.dataset.view === name);
   });
   // Lazy-load views on first switch
-  if (name === 'timeline') loadTimeline(true);
+  if (name === 'timeline') {
+    if (timelineMode === 'actions') loadActionTimeline(true);
+    else loadTimeline(true);
+  }
   if (name === 'agents' && S.project) loadAgentDefinitions(S.project);
   if (name === 'github' && S.project) loadGitHubData(S.project);
   if (name === 'mcp') loadMcpStatus();
@@ -573,6 +576,34 @@ sse.addEventListener('pti:delta', function(e) {
   } catch (err) { /* skip */ }
 });
 
+sse.addEventListener('action:new', function(e) {
+  try {
+    var a = parseSSE(e);
+    // Prepend to actions timeline if visible and matches current project
+    if (S.view === 'timeline' && timelineMode === 'actions' && S.project === a.project) {
+      var icon = ACTION_ICONS[a.action_type] || '\u25CF';
+      var color = ACTION_COLORS[a.action_type] || 'var(--dim)';
+      var time = a.created_at ? fmtTime(a.created_at, 'time') : '';
+      var html = '<div class="action-entry action-entry-new">' +
+        '<span class="action-icon" style="color:' + color + '">' + icon + '</span>' +
+        '<div class="action-content">' +
+          '<div class="action-title">' + esc(a.title) + '</div>' +
+          (a.details ? '<div class="action-details">' + esc(a.details).slice(0, 120) + '</div>' : '') +
+          '<div class="action-meta">' + (a.agent_id ? esc(a.agent_id) + ' | ' : '') + time + '</div>' +
+        '</div>' +
+      '</div>';
+      var el = document.getElementById('actions-timeline');
+      if (el) {
+        var empty = el.querySelector('.empty');
+        if (empty) empty.remove();
+        el.insertAdjacentHTML('afterbegin', html);
+      }
+    }
+    // Always log to terminal
+    addLog('[ACTION] ' + a.action_type + ': ' + (a.title || ''), 'event');
+  } catch (err) { /* skip */ }
+});
+
 // ── INITIAL LOAD ──
 apiCall('/api/state').then(function(state) {
   renderAgents(state.agents || []);
@@ -1025,8 +1056,82 @@ new MutationObserver(function(muts) {
 document.querySelectorAll('.md-code, .msg-body').forEach(attachScrollGlow);
 
 // ── TIMELINE ──
+var timelineMode = 'actions';
 let timelinePage = 0;
 let timelineLoading = false;
+var actionsPage = 0;
+
+function switchTimelineMode(mode) {
+  timelineMode = mode;
+  document.querySelectorAll('.tl-mode').forEach(function(t) {
+    t.classList.toggle('active', t.dataset.mode === mode);
+  });
+  document.getElementById('actions-timeline').style.display = mode === 'actions' ? 'block' : 'none';
+  document.getElementById('chat-timeline').style.display = mode === 'chat' ? 'block' : 'none';
+  if (mode === 'actions') loadActionTimeline(true);
+  if (mode === 'chat') loadTimeline(true);
+}
+
+var ACTION_ICONS = {
+  task_created: '\u25CF',      // blue dot
+  agent_spawned: '\u25B6',     // green play
+  agent_completed: '\u2713',   // green check
+  branch_created: '\u2387',    // git branch
+  pr_created: '\u2387',        // merge
+  paradigm_changed: '\u21C4',  // swap
+  agent_defined: '\u002B',     // plus
+  agent_updated: '\u270E',     // edit
+  agent_removed: '\u2715',     // x
+  command_sent: '\u25B8',      // terminal
+  error: '\u2717'              // red x
+};
+
+var ACTION_COLORS = {
+  task_created: 'var(--blue)',
+  agent_spawned: 'var(--green)',
+  agent_completed: 'var(--green)',
+  branch_created: 'var(--accent)',
+  pr_created: 'var(--accent)',
+  error: 'var(--rose)',
+  command_sent: 'var(--dim)',
+  paradigm_changed: 'var(--amber)',
+  agent_defined: 'var(--blue)',
+  agent_updated: 'var(--blue)',
+  agent_removed: 'var(--rose)'
+};
+
+async function loadActionTimeline(reset) {
+  if (reset) actionsPage = 0;
+  var project = S.project;
+  if (!project) { document.getElementById('actions-timeline').innerHTML = '<div class="empty">Seleziona un progetto</div>'; return; }
+  try {
+    var res = await fetch('/api/actions?project=' + encodeURIComponent(project) + '&limit=50&offset=' + (actionsPage * 50));
+    var actions = await res.json();
+    var el = document.getElementById('actions-timeline');
+    if (reset) el.innerHTML = '';
+    if (!actions.length && actionsPage === 0) {
+      el.innerHTML = '<div class="empty" style="padding:var(--s2)">Nessuna azione registrata</div>';
+      return;
+    }
+    var html = actions.map(function(a) {
+      var icon = ACTION_ICONS[a.action_type] || '\u25CF';
+      var color = ACTION_COLORS[a.action_type] || 'var(--dim)';
+      var time = a.created_at ? fmtTime(a.created_at, 'time') : '';
+      return '<div class="action-entry">' +
+        '<span class="action-icon" style="color:' + color + '">' + icon + '</span>' +
+        '<div class="action-content">' +
+          '<div class="action-title">' + esc(a.title) + '</div>' +
+          (a.details ? '<div class="action-details">' + esc(a.details).slice(0, 120) + '</div>' : '') +
+          '<div class="action-meta">' + (a.agent_id ? esc(a.agent_id) + ' | ' : '') + time + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    el.insertAdjacentHTML('beforeend', html);
+    actionsPage++;
+  } catch (err) {
+    console.error('loadActionTimeline:', err);
+  }
+}
 
 async function loadTimeline(reset) {
   if (timelineLoading) return;

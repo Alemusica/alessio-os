@@ -9,6 +9,7 @@
 
 import { surqlQuery } from '../pti/surreal-bridge.js';
 import { resolveParadigm } from '../pti/paradigm-registry.js';
+import { getRecentActions } from './action-logger.js';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -138,6 +139,17 @@ export async function buildContext(req: ContextRequest): Promise<BuiltContext> {
       sections.push(`## Conversazione recente del progetto "${req.project}" (${projectMemoryCount} msg)\n${chatLines.join('\n')}`);
     }
   } catch { /* SurrealDB down → procedi senza */ }
+
+  // --- 3b. Action History (azioni recenti del progetto) ---
+  try {
+    const actions = await getRecentActions(req.project, 15);
+    if (actions.length > 0) {
+      const actionLines = actions.map(a =>
+        `[${a.action_type}] ${a.title}${a.details ? ': ' + a.details.slice(0, 100) : ''}`
+      );
+      sections.push(`## Azioni recenti del progetto (${actions.length})\n${actionLines.join('\n')}`);
+    }
+  } catch { /* ok */ }
 
   // --- 4. Session Context (decisioni, blockers) ---
   try {

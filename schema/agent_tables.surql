@@ -147,6 +147,24 @@ DEFINE FUNCTION IF NOT EXISTS fn::pti_topology($gid: string) {
     };
 };
 
+-- ==================== ACTION LOG ====================
+
+DEFINE TABLE IF NOT EXISTS action_log SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS action_id ON action_log TYPE string;
+DEFINE FIELD IF NOT EXISTS project ON action_log TYPE string;
+DEFINE FIELD IF NOT EXISTS session_id ON action_log TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS agent_id ON action_log TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS agent_def_id ON action_log TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS action_type ON action_log TYPE string;
+DEFINE FIELD IF NOT EXISTS title ON action_log TYPE string;
+DEFINE FIELD IF NOT EXISTS details ON action_log TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS metadata ON action_log FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS created_at ON action_log TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_action_project ON action_log FIELDS project;
+DEFINE INDEX IF NOT EXISTS idx_action_type ON action_log FIELDS action_type;
+DEFINE INDEX IF NOT EXISTS idx_action_ts ON action_log FIELDS created_at;
+
 -- ==================== AGENT ISSUE ASSIGNMENTS ====================
 
 DEFINE TABLE IF NOT EXISTS agent_issue_assignment SCHEMAFULL;

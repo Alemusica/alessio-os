@@ -22,6 +22,7 @@ import { PTI_MANIFESTO, PTI_VERSION } from '../pti/manifesto.js';
 import { listParadigms, getParadigm, createParadigm, deleteParadigm, assignParadigm, getAssignment, removeAssignment, seedDefaultParadigm } from '../pti/paradigm-registry.js';
 import { listAgentDefinitions, getAgentDefinition, createAgentDefinition, updateAgentDefinition, deleteAgentDefinition } from '../agents/agent-definitions.js';
 import { resolveRepo, resolveProjectPath as ghProjectPath, getIssues, getPRs, getDiscussions, getIssueBody, getGithubConfig, setGithubConfig, generateBranchName, createBranch, branchExists, checkoutBranch } from '../integrations/github.js';
+import { logAction, onAction, getActionHistory } from '../agents/action-logger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, '..', '..');
@@ -230,7 +231,16 @@ async function handleCommand(req: IncomingMessage): Promise<unknown> {
   // Setta i fatti nel grafo PTI → propagazione reattiva fa tutto
   // input.text → derivato 'route' → azione 'act:route' → fatto 'queue.version'
   //   → derivato 'can.dispatch' → azione 'act:dispatch' → spawn claude
-  orchestrator.input(text, project || 'alessio-os');
+  const proj = project || 'alessio-os';
+  orchestrator.input(text, proj);
+
+  logAction({
+    project: proj,
+    action_type: 'command_sent',
+    title: `Comando: ${text.slice(0, 80)}`,
+    details: text.slice(0, 500),
+    metadata: { routes: route.roles, priority: route.priority },
+  }).catch(() => {});
 
   return { status: 'streaming', route: route.roles, pti: orchestrator.grafo.stats() };
 }
@@ -746,6 +756,23 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
+  // ==================== ACTION HISTORY API ====================
+
+  if (path === '/api/actions') {
+    const project = query.project as string;
+    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
+    try {
+      const limit = parseInt(query.limit as string) || 50;
+      const offset = parseInt(query.offset as string) || 0;
+      const type = query.type as string | undefined;
+      const actions = await getActionHistory(project, { limit, offset, type });
+      jsonResponse(res, actions);
+    } catch (err) {
+      jsonResponse(res, { error: String(err) }, 500);
+    }
+    return;
+  }
+
   // ==================== GITHUB API ====================
 
   if (path === '/api/github/issues') {
@@ -1059,6 +1086,9 @@ export function startDashboard(): void {
   });
   // No start() needed — PTI è reattivo, niente polling
   console.log('[Dashboard] Orchestrator PTI v4 pronto (reattivo, zero polling)');
+
+  // Action logger → SSE broadcast
+  onAction((entry) => broadcast('action:new', { action: entry }));
 
   // Seed default PTI paradigm
   seedDefaultParadigm().catch(err =>

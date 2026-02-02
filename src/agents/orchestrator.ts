@@ -82,6 +82,7 @@ const CLAUDE_BIN = (() => {
 })();
 import { join } from 'path';
 import { randomUUID } from 'crypto';
+import { logAction } from './action-logger.js';
 
 // ==================== TIPI ====================
 
@@ -288,6 +289,12 @@ export class Orchestrator {
               project: route.project,
               priority: route.priority - i,
             });
+            logAction({
+              project: route.project,
+              action_type: 'task_created',
+              title: `Task creato: ${role}`,
+              details: taskDesc.slice(0, 200),
+            }).catch(() => {});
           }
           // Bump → triggera act:dispatch
           this.grafo.fatto(
@@ -491,6 +498,12 @@ export class Orchestrator {
     args.push('-p', task);
 
     this.log(`[spawn] ${CLAUDE_BIN}`, 'dim');
+    logAction({
+      project, agent_id: agentId,
+      action_type: 'agent_spawned',
+      title: `Agent ${role} spawned`,
+      details: task.slice(0, 200),
+    }).catch(() => {});
     const child = spawn(CLAUDE_BIN, args, {
       cwd,
       env: { ...process.env, NO_COLOR: '1' },
@@ -550,6 +563,13 @@ export class Orchestrator {
         seq: this.agentDoneSeq,
       };
       this.grafo.fatto('agent.done.last', doneEvent);
+
+      logAction({
+        project, agent_id: agentId,
+        action_type: 'agent_completed',
+        title: `Agent ${role} completed (exit ${code})`,
+        details: result.slice(0, 200),
+      }).catch(() => {});
 
       // agents.running-- → capacity ricalcola → act:dispatch può ripartire
       this.grafo.fatto('agents.running', this.running.size);
