@@ -87,40 +87,12 @@ export function depthLabCameraJS(): string {
     startAnimate();
   }
 
-  // ── GLOBAL MOUSE TRACKING + HOVER DETECTION ──
-  // Hover via elementFromPoint: cambia stato SOLO quando l'utente muove il mouse,
-  // MAI come effetto collaterale del movimento della scena (elimina pumping).
+  // ── GLOBAL MOUSE TRACKING ──
   window.addEventListener('mousemove', function(e) {
     mouseX = e.clientX;
     mouseY = e.clientY;
-
-    if (!layoutTransitioning) {
-      var el = document.elementFromPoint(mouseX, mouseY);
-      var itemEl = el ? el.closest('.d3-item') : null;
-
-      if (itemEl !== hoveredItem) {
-        if (itemEl) {
-          // Hover enter
-          hoveredItem = itemEl;
-          var z = parseFloat(itemEl.dataset.z) || 0;
-          focalTarget = z + camera.z;
-          var bp = itemBasePos[parseInt(itemEl.dataset.index)];
-          var ps = profile.parallaxStrength;
-          hoverOffset.x = -bp.x * ps;
-          hoverOffset.y = -bp.y * ps;
-          hoverOffset.z = -z * ps;
-        } else {
-          // Hover leave
-          hoveredItem = null;
-          hoverOffset.x = 0;
-          hoverOffset.y = 0;
-          hoverOffset.z = 0;
-        }
-        updateAttractions();
-      } else if (hoveredItem) {
-        updateAttractions();
-      }
-      startAnimate();
+    if (hoveredItem && !layoutTransitioning) {
+      updateAttractions();
     }
   });
 
