@@ -321,7 +321,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   <div>FOCAL <strong id="hud-focal">0</strong></div>
   <div>F-STOP <strong id="hud-fstop">2.8</strong></div>
   <div>LAYOUT <strong id="hud-layout">alpha</strong></div>
-  <div>PULL <strong id="hud-pull">0.04</strong></div>
+  <div>PULL <strong id="hud-pull">0.06</strong></div>
   <div>ITEMS <strong>${projectData.length}</strong></div>
 </div>
 
@@ -332,8 +332,8 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   <span class="aperture-val" id="fstop-val">f/2.8</span>
   <div class="sep" style="width:1px;height:14px;background:var(--dim);opacity:0.3;margin:0 4px"></div>
   <label>PULL</label>
-  <input type="range" id="pull-slider" min="0" max="0.10" step="0.01" value="0.04">
-  <span class="aperture-val" id="pull-val">0.04</span>
+  <input type="range" id="pull-slider" min="0" max="0.20" step="0.01" value="0.06">
+  <span class="aperture-val" id="pull-val">0.06</span>
 </div>
 
 <div class="d3-ctx" id="ctx-menu">
@@ -375,6 +375,14 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   var mouseX = window.innerWidth / 2;
   var mouseY = window.innerHeight / 2;
 
+  // ── GOLDEN RATIO (dichiarato prima del seed loop!) ──
+  var PHI = (1 + Math.sqrt(5)) / 2;
+  var GOLDEN_ANGLE = 2.399963;
+
+  // ── ORGANIC CONSTANTS ──
+  var PULL_FACTOR = 0.06;    // quanto ogni item si sposta verso il cursore
+  var MAX_RIPPLE = 2500;     // raggio 3D dell'onda di risposta (copre cluster Z span)
+
   // ── PER-ITEM ORGANIC STATE ──
   // Ogni item ha posizione base (dal layout) + offset organico (attrazione cursore)
   // + seed casuale per temperamento unico (PTI: ogni cellula ha identità propria)
@@ -390,14 +398,6 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     itemSeed.push(0.8 + ((i * PHI) % 1) * 0.4); // range [0.8, 1.2]
   }
   var layoutTransitioning = false;
-
-  // ── GOLDEN RATIO ──
-  var PHI = (1 + Math.sqrt(5)) / 2;
-  var GOLDEN_ANGLE = 2.399963;
-
-  // ── ORGANIC CONSTANTS ──
-  var PULL_FACTOR = 0.04;    // quanto ogni item si sposta verso il cursore
-  var MAX_RIPPLE = 1200;     // raggio massimo dell'onda di risposta
 
   // ── THEMATIC CLUSTERS ──
   function classifyProject(name) {
@@ -805,7 +805,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
       var bp = itemBasePos[parseInt(item.dataset.index)];
       hoverOffset.x = -bp.x * 0.10;  // NEGATIVO = item viene verso centro
       hoverOffset.y = -bp.y * 0.10;
-      hoverOffset.z = z * 0.10;
+      hoverOffset.z = -z * 0.10;  // NEGATO: item dietro → camera avanti → item si avvicina
 
       // Attiva attrazione organica per tutti gli items
       updateAttractions();
@@ -879,7 +879,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     if (e.key === '[') { fStop = Math.max(1.0, fStop - 0.5); updateApertureUI(); }
     if (e.key === ']') { fStop = Math.min(16, fStop + 0.5); updateApertureUI(); }
     if (e.key === '-') { PULL_FACTOR = Math.max(0, +(PULL_FACTOR - 0.01).toFixed(2)); updatePullUI(); }
-    if (e.key === '=' || e.key === '+') { PULL_FACTOR = Math.min(0.10, +(PULL_FACTOR + 0.01).toFixed(2)); updatePullUI(); }
+    if (e.key === '=' || e.key === '+') { PULL_FACTOR = Math.min(0.20, +(PULL_FACTOR + 0.01).toFixed(2)); updatePullUI(); }
     if (e.key === 'r') { baseTarget.x = 0; baseTarget.y = 0; baseTarget.z = 0; focalTarget = 0; }
     if (e.key === '1') window.switchLayout('fibonacci');
     if (e.key === '2') window.switchLayout('cluster');
