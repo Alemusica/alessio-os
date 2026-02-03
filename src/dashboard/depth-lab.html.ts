@@ -3,33 +3,25 @@
  *
  * Testo puro nello spazio 3D con depth of field reale.
  * Niente card, niente bordi — solo tipografia che vive in un volume.
- * Navigazione con scroll/trackpad lungo l'asse Z.
+ * Tre layout: Fibonacci spirale aurea, Cluster tematici, Alfabetico.
  * F-stop simulato via CSS blur() basato sulla distanza dal piano focale.
  */
 
 export function depthLabPage(projects: Array<{project: string; msg_count: number; session_ids?: string[]}>): string {
-  // Distribuisci i progetti nello spazio 3D
-  const items = projects.map((p, i) => {
-    const name = p.project || 'home';
-    const count = p.msg_count || 0;
-    const sessions = Array.isArray(p.session_ids) ? [...new Set(p.session_ids)].length : 0;
-    // Distribuzione spaziale — griglia 3D con variazione organica
-    const cols = 4;
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const layer = Math.floor(i / (cols * 3)); // Z-layer ogni 3 righe
-    const x = -450 + col * 300 + (row % 2) * 40; // offset alternato
-    const y = -250 + (row % 3) * 200;
-    const z = -layer * 350 - (i % 5) * 80; // profondità variabile
-    return { name, count, sessions, x, y, z, index: i };
-  });
+  // Prepara dati per il client — posizionamento avviene in JS
+  const projectData = projects.map(p => ({
+    name: p.project || 'home',
+    count: p.msg_count || 0,
+    sessions: Array.isArray(p.session_ids) ? [...new Set(p.session_ids)].length : 0,
+  }));
 
-  const elements = items.map(it => {
-    return `<div class="d3-item" data-z="${it.z}" style="transform: translate3d(${it.x}px, ${it.y}px, ${it.z}px);" data-project="${it.name}">
-      <span class="d3-name">${it.name}</span>
-      <span class="d3-meta">${it.count}</span>
-    </div>`;
-  }).join('\n      ');
+  // Genera HTML items senza posizioni (le applica il JS)
+  const elements = projectData.map((p, i) =>
+    `<div class="d3-item" data-index="${i}" data-project="${p.name}" data-count="${p.count}">
+      <span class="d3-name">${p.name}</span>
+      <span class="d3-meta">${p.count}</span>
+    </div>`
+  ).join('\n      ');
 
   return `<!DOCTYPE html>
 <html lang="it">
@@ -63,7 +55,6 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   }
   body:active { cursor: grabbing; }
 
-  /* ── VIEWPORT — la finestra sulla scena 3D ── */
   .d3-viewport {
     width: 100vw;
     height: 100vh;
@@ -73,7 +64,6 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     position: relative;
   }
 
-  /* ── SCENE — il volume 3D che contiene tutto ── */
   .d3-scene {
     position: absolute;
     top: 50%;
@@ -84,26 +74,25 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  /* ── ITEM — testo puro nello spazio ── */
   .d3-item {
     position: absolute;
     transform-style: preserve-3d;
     white-space: nowrap;
     cursor: pointer;
+    /* Smooth layout transitions */
     transition:
+      transform 1.2s cubic-bezier(0.16, 1, 0.3, 1),
       filter 0.6s ease,
       opacity 0.6s ease,
-      color 0.2s ease;
-    /* DoF blur applicato via JS in base alla distanza dal focal plane */
+      font-size 0.8s ease;
   }
 
   .d3-name {
     font-family: var(--font);
-    font-size: 15px;
     font-weight: 400;
     letter-spacing: -0.01em;
     display: block;
-    transition: color 0.15s ease;
+    transition: color 0.15s ease, font-size 0.8s ease, font-weight 0.4s ease;
   }
 
   .d3-meta {
@@ -116,23 +105,13 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     display: block;
   }
 
-  /* Hover — item si illumina */
-  .d3-item:hover .d3-name {
-    color: var(--accent);
-  }
-  .d3-item:hover .d3-meta {
-    color: var(--text-secondary);
-  }
+  .d3-item:hover .d3-name { color: var(--accent); }
+  .d3-item:hover .d3-meta { color: var(--text-secondary); }
 
-  /* Focus ring — item nel piano focale */
-  .d3-item.in-focus .d3-name {
-    font-weight: 500;
-  }
-  .d3-item.in-focus .d3-meta {
-    color: var(--text-secondary);
-  }
+  .d3-item.in-focus .d3-name { font-weight: 500; }
+  .d3-item.in-focus .d3-meta { color: var(--text-secondary); }
 
-  /* ── HUD — info overlay ── */
+  /* ── HUD ── */
   .d3-hud {
     position: fixed;
     bottom: 34px;
@@ -145,17 +124,12 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     line-height: 1.8;
     pointer-events: none;
   }
-  .d3-hud strong {
-    color: var(--text-secondary);
-    font-weight: 400;
-  }
+  .d3-hud strong { color: var(--text-secondary); font-weight: 400; }
 
-  /* ── FOCAL PLANE INDICATOR ── */
+  /* ── FOCAL PLANE ── */
   .d3-focal-line {
     position: fixed;
-    left: 0;
-    right: 0;
-    top: 50%;
+    left: 0; right: 0; top: 50%;
     height: 1px;
     background: var(--accent);
     opacity: 0;
@@ -167,99 +141,60 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
 
   /* ── THEMES ── */
   .night {
-    --bg: #1C1A17;
-    --text: #D8D2CA;
-    --text-secondary: #9E978E;
-    --dim: #6B655D;
-    --accent: #C4A478;
+    --bg: #1C1A17; --text: #D8D2CA;
+    --text-secondary: #9E978E; --dim: #6B655D; --accent: #C4A478;
   }
   .primavera {
-    --bg: #F7FAF5;
-    --text: #2A332A;
-    --text-secondary: #5E6E58;
-    --dim: #8E9E88;
-    --accent: #C8887A;
+    --bg: #F7FAF5; --text: #2A332A;
+    --text-secondary: #5E6E58; --dim: #8E9E88; --accent: #C8887A;
   }
   .estate {
-    --bg: #F8F6F0;
-    --text: #2C3038;
-    --text-secondary: #5C6670;
-    --dim: #8C96A0;
-    --accent: #3E8EA0;
+    --bg: #F8F6F0; --text: #2C3038;
+    --text-secondary: #5C6670; --dim: #8C96A0; --accent: #3E8EA0;
   }
   .ellenica {
-    --bg: #F5F6FA;
-    --text: #1E2440;
-    --text-secondary: #5A6080;
-    --dim: #8890A8;
-    --accent: #2E5E9E;
+    --bg: #F5F6FA; --text: #1E2440;
+    --text-secondary: #5A6080; --dim: #8890A8; --accent: #2E5E9E;
   }
   .benessere {
-    --bg: #F5F8F6;
-    --text: #2A3430;
-    --text-secondary: #5A6E64;
-    --dim: #8AA098;
-    --accent: #5E9E88;
+    --bg: #F5F8F6; --text: #2A3430;
+    --text-secondary: #5A6E64; --dim: #8AA098; --accent: #5E9E88;
   }
 
-  /* Crosshair sottile al centro — indica il punto focale */
+  /* ── CROSSHAIR ── */
   .d3-crosshair {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    width: 20px;
-    height: 20px;
+    position: fixed; top: 50%; left: 50%;
+    width: 20px; height: 20px;
     margin: -10px 0 0 -10px;
-    pointer-events: none;
-    z-index: 5;
-    opacity: 0;
-    transition: opacity 0.4s ease;
+    pointer-events: none; z-index: 5;
+    opacity: 0; transition: opacity 0.4s ease;
   }
   .d3-viewport.moving .d3-crosshair { opacity: 0.3; }
-  .d3-crosshair::before,
-  .d3-crosshair::after {
-    content: '';
-    position: absolute;
-    background: var(--accent);
+  .d3-crosshair::before, .d3-crosshair::after {
+    content: ''; position: absolute; background: var(--accent);
   }
   .d3-crosshair::before {
-    left: 50%;
-    top: 0;
-    width: 0.5px;
-    height: 100%;
-    margin-left: -0.25px;
+    left: 50%; top: 0; width: 0.5px; height: 100%; margin-left: -0.25px;
   }
   .d3-crosshair::after {
-    top: 50%;
-    left: 0;
-    height: 0.5px;
-    width: 100%;
-    margin-top: -0.25px;
+    top: 50%; left: 0; height: 0.5px; width: 100%; margin-top: -0.25px;
   }
 
-  /* Title overlay */
+  /* ── TITLE ── */
   .d3-title {
-    position: fixed;
-    top: 34px;
-    left: 34px;
-    font-family: var(--font);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--dim);
-    z-index: 10;
-    pointer-events: none;
+    position: fixed; top: 34px; left: 34px;
+    font-family: var(--font); font-size: 11px;
+    font-weight: 500; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--dim);
+    z-index: 10; pointer-events: none;
   }
 
-  /* Theme switcher */
+  /* ── CONTROLS BAR (themes + layouts) ── */
   .d3-controls {
-    position: fixed;
-    top: 34px;
-    right: 34px;
-    z-index: 10;
-    display: flex;
-    gap: 8px;
+    position: fixed; top: 34px; right: 34px;
+    z-index: 10; display: flex; gap: 8px;
+    flex-wrap: wrap; justify-content: flex-end;
+    max-width: 400px;
   }
   .d3-controls button {
     background: none;
@@ -277,142 +212,82 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     color: var(--accent);
     border-color: var(--accent);
   }
-
-  /* ── APERTURE CONTROL ── */
-  .d3-aperture {
-    position: fixed;
-    bottom: 34px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-family: var(--mono);
-    font-size: 9px;
-    color: var(--dim);
-    letter-spacing: 0.04em;
-    user-select: none;
+  .d3-controls button.active {
+    color: var(--bg);
+    background: var(--accent);
+    border-color: var(--accent);
   }
-  .d3-aperture label {
-    opacity: 0.6;
-  }
-  .d3-aperture input[type="range"] {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 160px;
-    height: 1px;
+  .d3-controls .sep {
+    width: 1px;
     background: var(--dim);
-    outline: none;
-    opacity: 0.5;
-    transition: opacity 0.2s;
+    opacity: 0.3;
+    align-self: stretch;
+  }
+
+  /* ── APERTURE ── */
+  .d3-aperture {
+    position: fixed; bottom: 34px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 10; display: flex; align-items: center;
+    gap: 12px; font-family: var(--mono);
+    font-size: 9px; color: var(--dim);
+    letter-spacing: 0.04em; user-select: none;
+  }
+  .d3-aperture label { opacity: 0.6; }
+  .d3-aperture input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 160px; height: 1px;
+    background: var(--dim); outline: none;
+    opacity: 0.5; transition: opacity 0.2s;
   }
   .d3-aperture input[type="range"]:hover { opacity: 1; }
   .d3-aperture input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--accent);
-    cursor: pointer;
-    border: none;
+    -webkit-appearance: none; appearance: none;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; border: none;
   }
   .d3-aperture .aperture-val {
-    min-width: 28px;
-    color: var(--text-secondary);
-    font-weight: 400;
+    min-width: 28px; color: var(--text-secondary); font-weight: 400;
   }
-  /* Aperture iris icon — scales with f-stop */
   .d3-iris {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    border: 1px solid var(--dim);
-    position: relative;
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 1px solid var(--dim); position: relative;
     transition: all 0.3s ease;
-  }
-  .d3-iris::after {
-    content: '';
-    position: absolute;
-    border-radius: 50%;
-    background: var(--accent);
-    opacity: 0.3;
-    transition: all 0.3s ease;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
   }
 
   /* ── CONTEXT MENU ── */
   .d3-ctx {
-    position: fixed;
-    z-index: 100;
-    background: var(--bg);
-    border: 1px solid var(--dim);
-    border-radius: 4px;
-    padding: 4px 0;
-    min-width: 160px;
-    font-family: var(--font);
-    font-size: 12px;
-    color: var(--text);
-    box-shadow:
-      0 2px 8px rgba(0,0,0,0.08),
-      0 8px 24px rgba(0,0,0,0.06);
-    display: none;
-    opacity: 0;
+    position: fixed; z-index: 100;
+    background: var(--bg); border: 1px solid var(--dim);
+    border-radius: 4px; padding: 4px 0;
+    min-width: 160px; font-family: var(--font);
+    font-size: 12px; color: var(--text);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
+    display: none; opacity: 0;
     transform: scale(0.96) translateY(-4px);
     transition: opacity 0.15s ease, transform 0.15s ease;
   }
-  .d3-ctx.open {
-    display: block;
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+  .d3-ctx.open { display: block; opacity: 1; transform: scale(1) translateY(0); }
   .d3-ctx-item {
-    padding: 6px 16px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    transition: background 0.1s;
-    letter-spacing: 0.01em;
+    padding: 6px 16px; cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    transition: background 0.1s; letter-spacing: 0.01em;
   }
-  .d3-ctx-item:hover {
-    background: var(--accent);
-    color: var(--bg);
-  }
-  .d3-ctx-sep {
-    height: 1px;
-    background: var(--dim);
-    opacity: 0.2;
-    margin: 4px 0;
-  }
+  .d3-ctx-item:hover { background: var(--accent); color: var(--bg); }
+  .d3-ctx-sep { height: 1px; background: var(--dim); opacity: 0.2; margin: 4px 0; }
   .d3-ctx-label {
-    font-family: var(--mono);
-    font-size: 9px;
-    color: var(--dim);
-    padding: 4px 16px 2px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-family: var(--mono); font-size: 9px; color: var(--dim);
+    padding: 4px 16px 2px; letter-spacing: 0.06em; text-transform: uppercase;
   }
   .night .d3-ctx {
-    box-shadow:
-      0 2px 8px rgba(0,0,0,0.25),
-      0 8px 24px rgba(0,0,0,0.20);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25), 0 8px 24px rgba(0,0,0,0.20);
   }
 
-  /* Back link */
   .d3-back {
-    position: fixed;
-    bottom: 34px;
-    right: 34px;
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--dim);
-    text-decoration: none;
-    letter-spacing: 0.04em;
-    z-index: 10;
-    transition: color 0.2s;
+    position: fixed; bottom: 34px; right: 34px;
+    font-family: var(--mono); font-size: 10px;
+    color: var(--dim); text-decoration: none;
+    letter-spacing: 0.04em; z-index: 10; transition: color 0.2s;
   }
   .d3-back:hover { color: var(--accent); }
 </style>
@@ -435,16 +310,20 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   <button onclick="setTheme('estate')">Estate</button>
   <button onclick="setTheme('ellenica')">Ellenica</button>
   <button onclick="setTheme('benessere')">Benessere</button>
+  <div class="sep"></div>
+  <button id="btn-fibonacci" class="active" onclick="switchLayout('fibonacci')">Fibonacci</button>
+  <button id="btn-cluster" onclick="switchLayout('cluster')">Cluster</button>
+  <button id="btn-alpha" onclick="switchLayout('alpha')">A — Z</button>
 </div>
 
 <div class="d3-hud" id="hud">
   <div>Z <strong id="hud-z">0</strong></div>
   <div>FOCAL <strong id="hud-focal">0</strong></div>
   <div>F-STOP <strong id="hud-fstop">2.8</strong></div>
-  <div>ITEMS <strong>${items.length}</strong></div>
+  <div>LAYOUT <strong id="hud-layout">fibonacci</strong></div>
+  <div>ITEMS <strong>${projectData.length}</strong></div>
 </div>
 
-<!-- Aperture control -->
 <div class="d3-aperture" id="aperture">
   <label>APERTURE</label>
   <div class="d3-iris" id="iris"></div>
@@ -452,7 +331,6 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   <span class="aperture-val" id="fstop-val">f/2.8</span>
 </div>
 
-<!-- Context menu -->
 <div class="d3-ctx" id="ctx-menu">
   <div class="d3-ctx-label" id="ctx-title">project</div>
   <div class="d3-ctx-item" data-action="focus">Focus here</div>
@@ -470,18 +348,184 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
 (function() {
   var scene = document.getElementById('scene');
   var viewport = document.getElementById('viewport');
-  var items = document.querySelectorAll('.d3-item');
+  var items = Array.from(document.querySelectorAll('.d3-item'));
+  var n = items.length;
 
-  // Camera state
+  // ── PROJECT DATA ──
+  var DATA = ${JSON.stringify(projectData)};
+  var maxCount = Math.max.apply(null, DATA.map(function(d) { return d.count; })) || 1;
+
+  // ── CAMERA ──
   var camera = { x: 0, y: 0, z: 0 };
   var target = { x: 0, y: 0, z: 0 };
-  var focalDistance = 0; // Z distance where things are sharp
-  var fStop = 2.8;      // Lower = more blur, higher = less blur
-  var maxBlur = 12;     // Max blur in px
+  var baseTarget = { x: 0, y: 0, z: 0 }; // position without hover offset
+  var hoverOffset = { x: 0, y: 0, z: 0 }; // subtle parallax from hover
+  var focalDistance = 0;
+  var focalTarget = 0;  // smoothly interpolated focal Z
+  var fStop = 2.8;
+  var maxBlur = 12;
+  var hoveredItem = null;
 
-  // Smooth camera interpolation
+  // ── GOLDEN RATIO ──
+  var PHI = (1 + Math.sqrt(5)) / 2;       // 1.618...
+  var GOLDEN_ANGLE = Math.PI * 2 / (PHI * PHI); // ~137.5° in radians
+
+  // ── THEMATIC CLUSTERS ──
+  // Auto-classify by name patterns
+  function classifyProject(name) {
+    var nm = name.toLowerCase();
+    if (/ableton|djset|music/.test(nm)) return 'music';
+    if (/social|mcp|cli/.test(nm)) return 'social';
+    if (/dag|consult|startup|scouting|excel|work/.test(nm)) return 'business';
+    if (/ui|canvas|gui|test/.test(nm)) return 'interface';
+    if (/pti|graph|alessio-os|innesti/.test(nm)) return 'core';
+    return 'other';
+  }
+
+  var CLUSTER_NAMES = ['core', 'music', 'business', 'social', 'interface', 'other'];
+  var CLUSTER_Z = { core: 0, music: -400, business: -800, social: -1200, interface: -1600, other: -2000 };
+
+  // ═══════════════════════════════════════════
+  // LAYOUT 1: FIBONACCI SPIRAL (sezione aurea)
+  // ═══════════════════════════════════════════
+  function layoutFibonacci() {
+    // Sort by activity (most active = center)
+    var sorted = DATA.map(function(d, i) { return { d: d, i: i }; })
+      .sort(function(a, b) { return b.d.count - a.d.count; });
+
+    sorted.forEach(function(entry, rank) {
+      var el = items[entry.i];
+      var d = entry.d;
+
+      // Fibonacci phyllotaxis: angle = rank * golden_angle, radius = c * sqrt(rank)
+      var angle = rank * GOLDEN_ANGLE;
+      var radius = 120 * Math.sqrt(rank);
+
+      var x = Math.cos(angle) * radius;
+      var y = Math.sin(angle) * radius;
+      // Z: top items at front, less active recede
+      var z = -rank * 40;
+
+      // Font size: logarithmic scale based on activity
+      var fs = 12 + Math.log(1 + d.count) * 2.5;
+      fs = Math.min(fs, 28);
+
+      el.style.transform = 'translate3d(' + x.toFixed(0) + 'px, ' + y.toFixed(0) + 'px, ' + z + 'px)';
+      el.dataset.z = z;
+      el.querySelector('.d3-name').style.fontSize = fs.toFixed(1) + 'px';
+      el.querySelector('.d3-name').style.fontWeight = rank < 5 ? '500' : '400';
+    });
+  }
+
+  // ═══════════════════════════════════════════
+  // LAYOUT 2: THEMATIC CLUSTERS (piani Z)
+  // ═══════════════════════════════════════════
+  function layoutCluster() {
+    // Group projects by theme
+    var groups = {};
+    CLUSTER_NAMES.forEach(function(c) { groups[c] = []; });
+    DATA.forEach(function(d, i) {
+      var cat = classifyProject(d.name);
+      groups[cat].push({ d: d, i: i });
+    });
+
+    CLUSTER_NAMES.forEach(function(cat) {
+      var group = groups[cat];
+      if (!group.length) return;
+      var baseZ = CLUSTER_Z[cat];
+
+      // Sort within cluster by activity
+      group.sort(function(a, b) { return b.d.count - a.d.count; });
+
+      // Fibonacci sub-spiral within each cluster plane
+      group.forEach(function(entry, rank) {
+        var el = items[entry.i];
+        var d = entry.d;
+        var angle = rank * GOLDEN_ANGLE;
+        var radius = 80 * Math.sqrt(rank + 0.5);
+        var x = Math.cos(angle) * radius;
+        var y = Math.sin(angle) * radius;
+        var z = baseZ - rank * 15; // slight depth within cluster
+
+        var fs = 12 + Math.log(1 + d.count) * 2;
+        fs = Math.min(fs, 24);
+
+        el.style.transform = 'translate3d(' + x.toFixed(0) + 'px, ' + y.toFixed(0) + 'px, ' + z + 'px)';
+        el.dataset.z = z;
+        el.querySelector('.d3-name').style.fontSize = fs.toFixed(1) + 'px';
+        el.querySelector('.d3-name').style.fontWeight = rank === 0 ? '500' : '400';
+      });
+    });
+  }
+
+  // ═══════════════════════════════════════════
+  // LAYOUT 3: ALPHABETICAL (griglia aurea)
+  // ═══════════════════════════════════════════
+  function layoutAlpha() {
+    // Sort alphabetically
+    var sorted = DATA.map(function(d, i) { return { d: d, i: i }; })
+      .sort(function(a, b) { return a.d.name.localeCompare(b.d.name); });
+
+    // Golden rectangle grid: cols based on PHI ratio
+    var cols = Math.round(Math.sqrt(n * PHI));
+    var cellW = 260;
+    var cellH = cellW / PHI; // golden rectangle
+    var totalW = cols * cellW;
+    var totalH = Math.ceil(n / cols) * cellH;
+
+    sorted.forEach(function(entry, rank) {
+      var el = items[entry.i];
+      var d = entry.d;
+      var col = rank % cols;
+      var row = Math.floor(rank / cols);
+
+      var x = -totalW / 2 + col * cellW + cellW / 2;
+      var y = -totalH / 2 + row * cellH + cellH / 2;
+      // Each row slightly recedes in Z for depth
+      var z = -row * 80;
+
+      var fs = 13 + Math.log(1 + d.count) * 1.5;
+      fs = Math.min(fs, 22);
+
+      el.style.transform = 'translate3d(' + x.toFixed(0) + 'px, ' + y.toFixed(0) + 'px, ' + z + 'px)';
+      el.dataset.z = z;
+      el.querySelector('.d3-name').style.fontSize = fs.toFixed(1) + 'px';
+      el.querySelector('.d3-name').style.fontWeight = '400';
+    });
+  }
+
+  // ── LAYOUT SWITCH ──
+  var currentLayout = 'fibonacci';
+  var layoutFns = {
+    fibonacci: layoutFibonacci,
+    cluster: layoutCluster,
+    alpha: layoutAlpha
+  };
+
+  window.switchLayout = function(name) {
+    currentLayout = name;
+    document.getElementById('hud-layout').textContent = name;
+    // Update buttons
+    ['fibonacci', 'cluster', 'alpha'].forEach(function(l) {
+      document.getElementById('btn-' + l).classList.toggle('active', l === name);
+    });
+    // Apply layout
+    layoutFns[name]();
+    // Reset camera to origin to see the new layout
+    baseTarget.x = 0; baseTarget.y = 0; baseTarget.z = 0;
+    hoverOffset.x = 0; hoverOffset.y = 0; hoverOffset.z = 0;
+    focalTarget = 0;
+    startAnimate();
+  };
+
+  // ── ANIMATION ──
   var animating = false;
   function animate() {
+    // Compose target from base + hover parallax
+    target.x = baseTarget.x + hoverOffset.x;
+    target.y = baseTarget.y + hoverOffset.y;
+    target.z = baseTarget.z + hoverOffset.z;
+
     var dx = target.x - camera.x;
     var dy = target.y - camera.y;
     var dz = target.z - camera.z;
@@ -489,18 +533,20 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     camera.y += dy * 0.08;
     camera.z += dz * 0.08;
 
-    // Apply camera transform to scene
+    // Smooth focal distance interpolation
+    var df = focalTarget - focalDistance;
+    focalDistance += df * 0.12;
+
     scene.style.transform =
       'translate3d(' + camera.x + 'px, ' + camera.y + 'px, ' + camera.z + 'px)';
 
-    // Update depth of field
     updateDoF();
 
-    // Update HUD
     document.getElementById('hud-z').textContent = Math.round(-camera.z);
-    document.getElementById('hud-focal').textContent = Math.round(focalDistance - camera.z);
+    document.getElementById('hud-focal').textContent = Math.round(focalDistance);
 
-    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5 || Math.abs(dz) > 0.5) {
+    var moving = Math.abs(dx) > 0.3 || Math.abs(dy) > 0.3 || Math.abs(dz) > 0.3 || Math.abs(df) > 0.5;
+    if (moving) {
       requestAnimationFrame(animate);
     } else {
       animating = false;
@@ -516,13 +562,12 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     }
   }
 
-  // Depth of Field — simula f-stop reale
-  // Blur = |distanza dal piano focale| / f-stop
+  // ── DEPTH OF FIELD ──
   function updateDoF() {
     var focalZ = focalDistance;
     for (var i = 0; i < items.length; i++) {
       var itemZ = parseFloat(items[i].dataset.z) || 0;
-      var relativeZ = itemZ + camera.z; // posizione relativa alla camera
+      var relativeZ = itemZ + camera.z;
       var distance = Math.abs(relativeZ - focalZ);
       var blur = Math.min(distance / (fStop * 30), maxBlur);
       var opacity = Math.max(0.15, 1 - blur / (maxBlur * 1.5));
@@ -530,7 +575,6 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
       items[i].style.filter = blur > 0.3 ? 'blur(' + blur.toFixed(1) + 'px)' : 'none';
       items[i].style.opacity = opacity.toFixed(2);
 
-      // Mark items near focal plane
       if (blur < 1) {
         items[i].classList.add('in-focus');
       } else {
@@ -539,29 +583,26 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     }
   }
 
-  // Scroll → Z movement (trackpad/mouse wheel)
+  // ── SCROLL → Z ──
   viewport.addEventListener('wheel', function(e) {
     e.preventDefault();
-    // Pinch zoom (ctrlKey) → change f-stop
     if (e.ctrlKey) {
       fStop = Math.max(1.0, Math.min(16, fStop + e.deltaY * 0.02));
-      document.getElementById('hud-fstop').textContent = fStop.toFixed(1);
+      updateApertureUI();
       startAnimate();
       return;
     }
-    // Vertical scroll → Z movement
-    target.z += e.deltaY * 2;
-    // Horizontal scroll → X movement
-    target.x -= e.deltaX * 1.5;
+    baseTarget.z += e.deltaY * 2;
+    baseTarget.x -= e.deltaX * 1.5;
     startAnimate();
   }, { passive: false });
 
-  // Mouse drag → X/Y pan
+  // ── DRAG ──
   var dragging = false;
   var dragStart = { x: 0, y: 0 };
 
   viewport.addEventListener('mousedown', function(e) {
-    if (e.target.closest('.d3-controls') || e.target.closest('.d3-back')) return;
+    if (e.target.closest('.d3-controls') || e.target.closest('.d3-back') || e.target.closest('.d3-aperture')) return;
     dragging = true;
     dragStart.x = e.clientX;
     dragStart.y = e.clientY;
@@ -569,10 +610,8 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
 
   window.addEventListener('mousemove', function(e) {
     if (!dragging) return;
-    var dx = e.clientX - dragStart.x;
-    var dy = e.clientY - dragStart.y;
-    target.x += dx * 1.2;
-    target.y += dy * 1.2;
+    baseTarget.x += (e.clientX - dragStart.x) * 1.2;
+    baseTarget.y += (e.clientY - dragStart.y) * 1.2;
     dragStart.x = e.clientX;
     dragStart.y = e.clientY;
     startAnimate();
@@ -589,14 +628,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     fstopVal.textContent = 'f/' + fStop.toFixed(1);
     slider.value = fStop;
     document.getElementById('hud-fstop').textContent = fStop.toFixed(1);
-    // Iris size: f/1 = large opening, f/16 = tiny
-    var pct = 1 - (fStop - 1) / 15; // 1→1, 16→0
-    var size = 4 + pct * 10; // 4px→14px
-    iris.style.width = (10 + pct * 8) + 'px';
-    iris.style.height = (10 + pct * 8) + 'px';
-    var irisAfter = document.styleSheets[0];
-    // Inline: set CSS custom property for iris
-    iris.style.setProperty('--iris-size', size + 'px');
+    var pct = 1 - (fStop - 1) / 15;
     iris.setAttribute('style',
       'width:' + (10 + pct * 8) + 'px;height:' + (10 + pct * 8) + 'px;' +
       'border-color:' + (pct > 0.5 ? 'var(--accent)' : 'var(--dim)'));
@@ -610,12 +642,11 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
 
   // ── CONTEXT MENU ──
   var ctxMenu = document.getElementById('ctx-menu');
-  var ctxProject = null; // currently right-clicked project name
+  var ctxProject = null;
 
   function showCtx(x, y, projectName) {
     ctxProject = projectName;
     document.getElementById('ctx-title').textContent = projectName;
-    // Position — keep within viewport
     var mw = ctxMenu.offsetWidth || 160;
     var mh = ctxMenu.offsetHeight || 180;
     if (x + mw > window.innerWidth) x = window.innerWidth - mw - 8;
@@ -630,90 +661,94 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     ctxProject = null;
   }
 
-  // Right-click on item → context menu
   items.forEach(function(item) {
+    // Hover → focus shifts to this item (focal plane + subtle parallax)
+    item.addEventListener('mouseenter', function() {
+      hoveredItem = item;
+      var z = parseFloat(item.dataset.z) || 0;
+      // Move focal plane to the item's Z (relative to camera)
+      focalTarget = z + camera.z;
+      // Subtle parallax: scene shifts 10% toward item
+      var ix = parseFloat(item.style.transform.match(/translate3d\(([^,]+)/)?.[1]) || 0;
+      var iy = parseFloat(item.style.transform.match(/,\s*([^,]+)/)?.[1]) || 0;
+      hoverOffset.x = ix * 0.10;
+      hoverOffset.y = iy * 0.10;
+      hoverOffset.z = -z * 0.10;
+      startAnimate();
+    });
+
+    item.addEventListener('mouseleave', function() {
+      if (hoveredItem === item) {
+        hoveredItem = null;
+        // Return parallax to zero, keep focal where it was
+        hoverOffset.x = 0;
+        hoverOffset.y = 0;
+        hoverOffset.z = 0;
+        startAnimate();
+      }
+    });
+
     item.addEventListener('contextmenu', function(e) {
       e.preventDefault();
       e.stopPropagation();
       showCtx(e.clientX, e.clientY, item.dataset.project);
     });
-  });
 
-  // Click on item → fly to it
-  items.forEach(function(item) {
     item.addEventListener('click', function(e) {
-      if (Math.abs(e.clientX - dragStart.x) > 5) return; // ignore drag-clicks
+      if (Math.abs(e.clientX - dragStart.x) > 5) return;
       hideCtx();
-      var z = parseFloat(item.dataset.z) || 0;
-      target.z = -z;
-      focalDistance = 0;
-      startAnimate();
+      // Click opens context menu instead of flying
+      showCtx(e.clientX + 10, e.clientY, item.dataset.project);
     });
   });
 
-  // Context menu actions
   document.querySelectorAll('.d3-ctx-item').forEach(function(el) {
     el.addEventListener('click', function() {
       var action = el.dataset.action;
       var proj = ctxProject;
       hideCtx();
       if (!proj) return;
-      switch (action) {
-        case 'focus':
-          // Find the item and fly to it
-          for (var i = 0; i < items.length; i++) {
-            if (items[i].dataset.project === proj) {
-              target.z = -(parseFloat(items[i].dataset.z) || 0);
-              focalDistance = 0;
-              startAnimate();
-              break;
-            }
+      if (action === 'focus') {
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].dataset.project === proj) {
+            var iz = parseFloat(items[i].dataset.z) || 0;
+            baseTarget.z = -iz;
+            focalTarget = 0;
+            startAnimate();
+            break;
           }
-          break;
-        case 'open':
-          window.location.href = '/?project=' + encodeURIComponent(proj);
-          break;
-        case 'chat':
-          window.location.href = '/?view=chat&project=' + encodeURIComponent(proj);
-          break;
-        case 'sessions':
-          window.location.href = '/?view=sessions&project=' + encodeURIComponent(proj);
-          break;
-        case 'graph':
-          window.location.href = '/?view=graph&project=' + encodeURIComponent(proj);
-          break;
+        }
+      } else {
+        var views = { open: '', chat: 'chat', sessions: 'sessions', graph: 'graph' };
+        var v = views[action] || '';
+        window.location.href = '/?project=' + encodeURIComponent(proj) + (v ? '&view=' + v : '');
       }
     });
   });
 
-  // Close context menu on click outside or escape
   document.addEventListener('click', function(e) {
     if (!e.target.closest('.d3-ctx')) hideCtx();
   });
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') hideCtx();
-  });
 
-  // Right-click on viewport background → close menu
   viewport.addEventListener('contextmenu', function(e) {
-    if (!e.target.closest('.d3-item')) {
-      e.preventDefault();
-      hideCtx();
-    }
+    if (!e.target.closest('.d3-item')) { e.preventDefault(); hideCtx(); }
   });
 
   // ── KEYBOARD ──
   document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') { hideCtx(); return; }
     var step = e.shiftKey ? 300 : 100;
-    if (e.key === 'ArrowUp') { target.z += step; e.preventDefault(); }
-    if (e.key === 'ArrowDown') { target.z -= step; e.preventDefault(); }
-    if (e.key === 'ArrowLeft') { target.x += step; e.preventDefault(); }
-    if (e.key === 'ArrowRight') { target.x -= step; e.preventDefault(); }
-    // [ and ] → f-stop
+    if (e.key === 'ArrowUp') { baseTarget.z += step; e.preventDefault(); }
+    if (e.key === 'ArrowDown') { baseTarget.z -= step; e.preventDefault(); }
+    if (e.key === 'ArrowLeft') { baseTarget.x += step; e.preventDefault(); }
+    if (e.key === 'ArrowRight') { baseTarget.x -= step; e.preventDefault(); }
     if (e.key === '[') { fStop = Math.max(1.0, fStop - 0.5); updateApertureUI(); }
     if (e.key === ']') { fStop = Math.min(16, fStop + 0.5); updateApertureUI(); }
-    // r → reset camera
-    if (e.key === 'r') { target.x = 0; target.y = 0; target.z = 0; }
+    if (e.key === 'r') { baseTarget.x = 0; baseTarget.y = 0; baseTarget.z = 0; focalTarget = 0; }
+    // 1/2/3 → switch layout
+    if (e.key === '1') window.switchLayout('fibonacci');
+    if (e.key === '2') window.switchLayout('cluster');
+    if (e.key === '3') window.switchLayout('alpha');
     startAnimate();
   });
 
@@ -724,7 +759,8 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     if (name !== 'default') document.documentElement.classList.add(name);
   };
 
-  // Initial state
+  // ── INIT ──
+  layoutFibonacci();
   updateApertureUI();
   updateDoF();
 })();
