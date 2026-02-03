@@ -241,50 +241,11 @@ export function depthLabInteractionJS(): string {
     ctxProject = null;
   }
 
-  // ── PER-ITEM HOVER + CLICK + CONTEXT MENU ──
-  // Anti-pumping: il parallax muove la scena → item esce dal cursore →
-  // mouseleave → parallax torna → item rientra → mouseenter → LOOP.
-  // Fix: debounce mouseleave 150ms. Se mouseenter ri-scatta sullo stesso
-  // item (rimbalzo parallax), il timer viene annullato → zero oscillazione.
-  var _hoverLeaveTimer = null;
-
+  // ── PER-ITEM CLICK + CONTEXT MENU ──
+  // Hover detection è in camera.ts via elementFromPoint sul mousemove globale.
+  // Questo elimina il pumping: hover cambia SOLO quando l'utente muove il mouse,
+  // MAI come effetto collaterale del parallax che sposta la scena.
   items.forEach(function(item) {
-    item.addEventListener('mouseenter', function() {
-      // Annulla eventuale timer di un-hover (rimbalzo parallax)
-      if (_hoverLeaveTimer) { clearTimeout(_hoverLeaveTimer); _hoverLeaveTimer = null; }
-
-      hoveredItem = item;
-      var z = parseFloat(item.dataset.z) || 0;
-      focalTarget = z + camera.z;
-
-      var bp = itemBasePos[parseInt(item.dataset.index)];
-      var ps = profile.parallaxStrength;
-      hoverOffset.x = -bp.x * ps;
-      hoverOffset.y = -bp.y * ps;
-      hoverOffset.z = -z * ps;
-
-      updateAttractions();
-      startAnimate();
-    });
-
-    item.addEventListener('mouseleave', function() {
-      if (hoveredItem !== item) return;
-      // Debounce: aspetta 150ms prima di un-hover.
-      // Se mouseenter ri-scatta (rimbalzo parallax), timer annullato.
-      if (_hoverLeaveTimer) clearTimeout(_hoverLeaveTimer);
-      _hoverLeaveTimer = setTimeout(function() {
-        _hoverLeaveTimer = null;
-        if (hoveredItem === item) {
-          hoveredItem = null;
-          hoverOffset.x = 0;
-          hoverOffset.y = 0;
-          hoverOffset.z = 0;
-          updateAttractions();
-          startAnimate();
-        }
-      }, 150);
-    });
-
     item.addEventListener('contextmenu', function(e) {
       e.preventDefault();
       e.stopPropagation();
