@@ -69,11 +69,8 @@ export function depthLabCameraJS(): string {
       var dy = my - bp.y;
 
       if (i === hovIdx) {
-        // PIN: l'item hoverato cancella lo shift parallax della scena.
-        // Scena si muove di hoverOffset → item si sposta → cursore lo perde.
-        // Offset inverso = item resta pinnato sotto il cursore.
-        itemOffsetTarget[i].x = -hoverOffset.x;
-        itemOffsetTarget[i].y = -hoverOffset.y;
+        itemOffsetTarget[i].x = 0;
+        itemOffsetTarget[i].y = 0;
       } else {
         var ox = dx * PULL_FACTOR * ripple;
         var oy = dy * PULL_FACTOR * ripple;
