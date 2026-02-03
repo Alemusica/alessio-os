@@ -79,9 +79,9 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     transform-style: preserve-3d;
     white-space: nowrap;
     cursor: pointer;
-    /* Smooth layout transitions */
+    text-align: center;
+    /* No CSS transform transition — handled by rAF for organic movement */
     transition:
-      transform 1.2s cubic-bezier(0.16, 1, 0.3, 1),
       filter 0.6s ease,
       opacity 0.6s ease,
       font-size 0.8s ease;
@@ -311,16 +311,17 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   <button onclick="setTheme('ellenica')">Ellenica</button>
   <button onclick="setTheme('benessere')">Benessere</button>
   <div class="sep"></div>
-  <button id="btn-fibonacci" class="active" onclick="switchLayout('fibonacci')">Fibonacci</button>
+  <button id="btn-fibonacci" onclick="switchLayout('fibonacci')">Fibonacci</button>
   <button id="btn-cluster" onclick="switchLayout('cluster')">Cluster</button>
-  <button id="btn-alpha" onclick="switchLayout('alpha')">A — Z</button>
+  <button id="btn-alpha" class="active" onclick="switchLayout('alpha')">A — Z</button>
 </div>
 
 <div class="d3-hud" id="hud">
   <div>Z <strong id="hud-z">0</strong></div>
   <div>FOCAL <strong id="hud-focal">0</strong></div>
   <div>F-STOP <strong id="hud-fstop">2.8</strong></div>
-  <div>LAYOUT <strong id="hud-layout">fibonacci</strong></div>
+  <div>LAYOUT <strong id="hud-layout">alpha</strong></div>
+  <div>PULL <strong id="hud-pull">0.04</strong></div>
   <div>ITEMS <strong>${projectData.length}</strong></div>
 </div>
 
@@ -329,6 +330,10 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   <div class="d3-iris" id="iris"></div>
   <input type="range" id="fstop-slider" min="1.0" max="16" step="0.1" value="2.8">
   <span class="aperture-val" id="fstop-val">f/2.8</span>
+  <div class="sep" style="width:1px;height:14px;background:var(--dim);opacity:0.3;margin:0 4px"></div>
+  <label>PULL</label>
+  <input type="range" id="pull-slider" min="0" max="0.10" step="0.01" value="0.04">
+  <span class="aperture-val" id="pull-val">0.04</span>
 </div>
 
 <div class="d3-ctx" id="ctx-menu">
@@ -355,23 +360,46 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   var DATA = ${JSON.stringify(projectData)};
   var maxCount = Math.max.apply(null, DATA.map(function(d) { return d.count; })) || 1;
 
-  // ── CAMERA ──
+  // ── CAMERA (scena, non telecamera — translate3d muove la scena) ──
   var camera = { x: 0, y: 0, z: 0 };
   var target = { x: 0, y: 0, z: 0 };
-  var baseTarget = { x: 0, y: 0, z: 0 }; // position without hover offset
-  var hoverOffset = { x: 0, y: 0, z: 0 }; // subtle parallax from hover
+  var baseTarget = { x: 0, y: 0, z: 0 };
+  var hoverOffset = { x: 0, y: 0, z: 0 };
   var focalDistance = 0;
-  var focalTarget = 0;  // smoothly interpolated focal Z
+  var focalTarget = 0;
   var fStop = 2.8;
   var maxBlur = 12;
   var hoveredItem = null;
 
+  // ── MOUSE TRACKING (per attrazione organica) ──
+  var mouseX = window.innerWidth / 2;
+  var mouseY = window.innerHeight / 2;
+
+  // ── PER-ITEM ORGANIC STATE ──
+  // Ogni item ha posizione base (dal layout) + offset organico (attrazione cursore)
+  // + seed casuale per temperamento unico (PTI: ogni cellula ha identità propria)
+  var itemBasePos = [];      // { x, y, z } — posizione dal layout
+  var itemOffset = [];       // { x, y } — offset corrente (animato)
+  var itemOffsetTarget = []; // { x, y } — target offset
+  var itemSeed = [];         // 0.8..1.2 — modulatore velocità per-item
+  for (var i = 0; i < n; i++) {
+    itemBasePos.push({ x: 0, y: 0, z: 0 });
+    itemOffset.push({ x: 0, y: 0 });
+    itemOffsetTarget.push({ x: 0, y: 0 });
+    // Seed stabile: golden ratio hash per distribuzione uniforme
+    itemSeed.push(0.8 + ((i * PHI) % 1) * 0.4); // range [0.8, 1.2]
+  }
+  var layoutTransitioning = false;
+
   // ── GOLDEN RATIO ──
-  var PHI = (1 + Math.sqrt(5)) / 2;       // 1.618...
-  var GOLDEN_ANGLE = 2.399963; // 137.508° — the exact golden angle in radians
+  var PHI = (1 + Math.sqrt(5)) / 2;
+  var GOLDEN_ANGLE = 2.399963;
+
+  // ── ORGANIC CONSTANTS ──
+  var PULL_FACTOR = 0.04;    // quanto ogni item si sposta verso il cursore
+  var MAX_RIPPLE = 1200;     // raggio massimo dell'onda di risposta
 
   // ── THEMATIC CLUSTERS ──
-  // Auto-classify by name patterns
   function classifyProject(name) {
     var nm = name.toLowerCase();
     if (/ableton|djset|music/.test(nm)) return 'music';
@@ -389,29 +417,23 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   // LAYOUT 1: FIBONACCI SPIRAL (sezione aurea)
   // ═══════════════════════════════════════════
   function layoutFibonacci() {
-    // Sort by activity (most active = center)
     var sorted = DATA.map(function(d, i) { return { d: d, i: i }; })
       .sort(function(a, b) { return b.d.count - a.d.count; });
 
     sorted.forEach(function(entry, rank) {
       var el = items[entry.i];
       var d = entry.d;
-
-      // Fibonacci phyllotaxis: angle = rank * golden_angle, radius = c * sqrt(rank)
       var angle = rank * GOLDEN_ANGLE;
-      var radius = 200 * Math.sqrt(rank + 0.5); // +0.5 avoids center stacking
-
+      var radius = 200 * Math.sqrt(rank + 0.5);
       var x = Math.cos(angle) * radius;
       var y = Math.sin(angle) * radius;
-      // Z: gentle depth — not too aggressive to avoid perspective compression
       var z = -rank * 20;
-
-      // Font size: logarithmic scale based on activity
       var fs = 12 + Math.log(1 + d.count) * 2.5;
       fs = Math.min(fs, 28);
 
-      el.style.transform = 'translate3d(' + x.toFixed(0) + 'px, ' + y.toFixed(0) + 'px, ' + z + 'px)';
-      el.dataset.z = z;
+      itemBasePos[entry.i] = { x: x, y: y, z: z };
+      el.style.transform = 'translate3d(' + x.toFixed(0) + 'px, ' + y.toFixed(0) + 'px, ' + z + 'px) translate(-50%, -50%)';
+      el.dataset.z = String(z);
       el.querySelector('.d3-name').style.fontSize = fs.toFixed(1) + 'px';
       el.querySelector('.d3-name').style.fontWeight = rank < 5 ? '500' : '400';
     });
@@ -421,7 +443,6 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   // LAYOUT 2: THEMATIC CLUSTERS (piani Z)
   // ═══════════════════════════════════════════
   function layoutCluster() {
-    // Group projects by theme
     var groups = {};
     CLUSTER_NAMES.forEach(function(c) { groups[c] = []; });
     DATA.forEach(function(d, i) {
@@ -433,11 +454,8 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
       var group = groups[cat];
       if (!group.length) return;
       var baseZ = CLUSTER_Z[cat];
-
-      // Sort within cluster by activity
       group.sort(function(a, b) { return b.d.count - a.d.count; });
 
-      // Fibonacci sub-spiral within each cluster plane
       group.forEach(function(entry, rank) {
         var el = items[entry.i];
         var d = entry.d;
@@ -445,13 +463,13 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
         var radius = 160 * Math.sqrt(rank + 0.5);
         var x = Math.cos(angle) * radius;
         var y = Math.sin(angle) * radius;
-        var z = baseZ - rank * 15; // slight depth within cluster
-
+        var z = baseZ - rank * 15;
         var fs = 12 + Math.log(1 + d.count) * 2;
         fs = Math.min(fs, 24);
 
-        el.style.transform = 'translate3d(' + x.toFixed(0) + 'px, ' + y.toFixed(0) + 'px, ' + z + 'px)';
-        el.dataset.z = z;
+        itemBasePos[entry.i] = { x: x, y: y, z: z };
+        el.style.transform = 'translate3d(' + x.toFixed(0) + 'px, ' + y.toFixed(0) + 'px, ' + z + 'px) translate(-50%, -50%)';
+        el.dataset.z = String(z);
         el.querySelector('.d3-name').style.fontSize = fs.toFixed(1) + 'px';
         el.querySelector('.d3-name').style.fontWeight = rank === 0 ? '500' : '400';
       });
@@ -462,14 +480,12 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   // LAYOUT 3: ALPHABETICAL (griglia aurea)
   // ═══════════════════════════════════════════
   function layoutAlpha() {
-    // Sort alphabetically
     var sorted = DATA.map(function(d, i) { return { d: d, i: i }; })
       .sort(function(a, b) { return a.d.name.localeCompare(b.d.name); });
 
-    // Golden rectangle grid: cols based on PHI ratio
     var cols = Math.round(Math.sqrt(n * PHI));
     var cellW = 260;
-    var cellH = cellW / PHI; // golden rectangle
+    var cellH = cellW / PHI;
     var totalW = cols * cellW;
     var totalH = Math.ceil(n / cols) * cellH;
 
@@ -478,50 +494,113 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
       var d = entry.d;
       var col = rank % cols;
       var row = Math.floor(rank / cols);
-
       var x = -totalW / 2 + col * cellW + cellW / 2;
       var y = -totalH / 2 + row * cellH + cellH / 2;
-      // Each row slightly recedes in Z for depth
       var z = -row * 80;
-
       var fs = 13 + Math.log(1 + d.count) * 1.5;
       fs = Math.min(fs, 22);
 
-      el.style.transform = 'translate3d(' + x.toFixed(0) + 'px, ' + y.toFixed(0) + 'px, ' + z + 'px)';
-      el.dataset.z = z;
+      itemBasePos[entry.i] = { x: x, y: y, z: z };
+      el.style.transform = 'translate3d(' + x.toFixed(0) + 'px, ' + y.toFixed(0) + 'px, ' + z + 'px) translate(-50%, -50%)';
+      el.dataset.z = String(z);
       el.querySelector('.d3-name').style.fontSize = fs.toFixed(1) + 'px';
       el.querySelector('.d3-name').style.fontWeight = '400';
     });
   }
 
   // ── LAYOUT SWITCH ──
-  var currentLayout = 'fibonacci';
-  var layoutFns = {
-    fibonacci: layoutFibonacci,
-    cluster: layoutCluster,
-    alpha: layoutAlpha
-  };
+  var currentLayout = 'alpha';
+  var layoutFns = { fibonacci: layoutFibonacci, cluster: layoutCluster, alpha: layoutAlpha };
 
   window.switchLayout = function(name) {
     currentLayout = name;
     document.getElementById('hud-layout').textContent = name;
-    // Update buttons
     ['fibonacci', 'cluster', 'alpha'].forEach(function(l) {
       document.getElementById('btn-' + l).classList.toggle('active', l === name);
     });
-    // Apply layout
+    // Transizione CSS temporanea per lo switch layout
+    layoutTransitioning = true;
+    for (var i = 0; i < n; i++) {
+      items[i].style.transition = 'transform 1.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.6s ease, opacity 0.6s ease, font-size 0.8s ease';
+      itemOffset[i].x = 0; itemOffset[i].y = 0;
+      itemOffsetTarget[i].x = 0; itemOffsetTarget[i].y = 0;
+    }
     layoutFns[name]();
-    // Reset camera to origin to see the new layout
     baseTarget.x = 0; baseTarget.y = 0; baseTarget.z = 0;
     hoverOffset.x = 0; hoverOffset.y = 0; hoverOffset.z = 0;
     focalTarget = 0;
     startAnimate();
+    // Dopo la transizione, torna a rAF puro (no CSS transition su transform)
+    setTimeout(function() {
+      layoutTransitioning = false;
+      for (var i = 0; i < n; i++) {
+        items[i].style.transition = 'filter 0.6s ease, opacity 0.6s ease, font-size 0.8s ease';
+      }
+    }, 1300);
   };
 
-  // ── ANIMATION ──
+  // ═══════════════════════════════════════════
+  // ORGANIC ATTRACTION — cuore del sistema
+  // Ogni item si muove indipendentemente verso il cursore,
+  // modulato dalla distanza dall'item in hover (ripple/onda).
+  // Items vicini all'hover reagiscono forte e veloce,
+  // items lontani reagiscono piano e poco — come un organismo.
+  // ═══════════════════════════════════════════
+  function updateAttractions() {
+    if (!hoveredItem || layoutTransitioning) {
+      // Nessun hover → tutti gli offset target a zero
+      for (var i = 0; i < n; i++) {
+        itemOffsetTarget[i].x = 0;
+        itemOffsetTarget[i].y = 0;
+      }
+      startAnimate();
+      return;
+    }
+
+    var hovIdx = parseInt(hoveredItem.dataset.index);
+    var hovBase = itemBasePos[hovIdx];
+
+    // Posizione del mouse nello spazio della scena
+    var mx = mouseX - window.innerWidth / 2 - camera.x;
+    var my = mouseY - window.innerHeight / 2 - camera.y;
+
+    for (var i = 0; i < n; i++) {
+      var bp = itemBasePos[i];
+
+      // ── RIPPLE: distanza euclidea 3D dall'item in hover ──
+      // Includo Z per consapevolezza della profondità (PTI: coerenza spaziale)
+      var dhx = bp.x - hovBase.x;
+      var dhy = bp.y - hovBase.y;
+      var dhz = bp.z - hovBase.z;
+      var distHov = Math.sqrt(dhx * dhx + dhy * dhy + dhz * dhz);
+      var ripple = Math.max(0, 1 - distHov / MAX_RIPPLE);
+      ripple = ripple * ripple; // ease quadratico → decadimento organico
+
+      // ── ATTRAZIONE: direzione verso il cursore ──
+      var dx = mx - bp.x;
+      var dy = my - bp.y;
+
+      // Spostamento proporzionale a distanza × pull × ripple
+      // Questo crea un "foglio elastico" che si deforma verso il cursore
+      itemOffsetTarget[i].x = dx * PULL_FACTOR * ripple;
+      itemOffsetTarget[i].y = dy * PULL_FACTOR * ripple;
+    }
+    startAnimate();
+  }
+
+  // ── GLOBAL MOUSE TRACKING ──
+  window.addEventListener('mousemove', function(e) {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+    if (hoveredItem && !layoutTransitioning) {
+      updateAttractions();
+    }
+  });
+
+  // ── ANIMATION LOOP ──
   var animating = false;
   function animate() {
-    // Compose target from base + hover parallax
+    // Camera: compone base + hover parallax
     target.x = baseTarget.x + hoverOffset.x;
     target.y = baseTarget.y + hoverOffset.y;
     target.z = baseTarget.z + hoverOffset.z;
@@ -533,19 +612,55 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     camera.y += dy * 0.08;
     camera.z += dz * 0.08;
 
-    // Smooth focal distance interpolation
+    // Interpolazione focale morbida
     var df = focalTarget - focalDistance;
     focalDistance += df * 0.12;
 
     scene.style.transform =
       'translate3d(' + camera.x + 'px, ' + camera.y + 'px, ' + camera.z + 'px)';
 
+    // ── PER-ITEM ORGANIC OFFSETS ──
+    // Ogni item lerpa verso il suo target con velocità variabile (ripple timing)
+    var offsetMoving = false;
+    if (!layoutTransitioning) {
+      var hovIdx = hoveredItem ? parseInt(hoveredItem.dataset.index) : -1;
+      var hovBase = hovIdx >= 0 ? itemBasePos[hovIdx] : null;
+
+      for (var i = 0; i < n; i++) {
+        // Velocità di lerp variabile: distanza 3D + seed per-item (temperamento)
+        // PTI: ogni cellula ha identità propria — risposta organica, non uniforme
+        var lerpSpeed = 0.04;
+        if (hovBase) {
+          var dhx = itemBasePos[i].x - hovBase.x;
+          var dhy = itemBasePos[i].y - hovBase.y;
+          var dhz = itemBasePos[i].z - hovBase.z;
+          var d = Math.sqrt(dhx * dhx + dhy * dhy + dhz * dhz);
+          var proximity = Math.max(0, 1 - d / MAX_RIPPLE);
+          lerpSpeed = (0.03 + 0.12 * proximity) * itemSeed[i]; // seed modula ±20%
+        }
+
+        var odx = itemOffsetTarget[i].x - itemOffset[i].x;
+        var ody = itemOffsetTarget[i].y - itemOffset[i].y;
+        itemOffset[i].x += odx * lerpSpeed;
+        itemOffset[i].y += ody * lerpSpeed;
+
+        if (Math.abs(odx) > 0.1 || Math.abs(ody) > 0.1) offsetMoving = true;
+
+        // Applica posizione combinata: base + offset organico + centering
+        var bp = itemBasePos[i];
+        items[i].style.transform = 'translate3d(' +
+          (bp.x + itemOffset[i].x).toFixed(1) + 'px, ' +
+          (bp.y + itemOffset[i].y).toFixed(1) + 'px, ' +
+          bp.z + 'px) translate(-50%, -50%)';
+      }
+    }
+
     updateDoF();
 
     document.getElementById('hud-z').textContent = Math.round(-camera.z);
     document.getElementById('hud-focal').textContent = Math.round(focalDistance);
 
-    var moving = Math.abs(dx) > 0.3 || Math.abs(dy) > 0.3 || Math.abs(dz) > 0.3 || Math.abs(df) > 0.5;
+    var moving = Math.abs(dx) > 0.3 || Math.abs(dy) > 0.3 || Math.abs(dz) > 0.3 || Math.abs(df) > 0.5 || offsetMoving;
     if (moving) {
       requestAnimationFrame(animate);
     } else {
@@ -640,6 +755,22 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     startAnimate();
   });
 
+  // ── PULL FACTOR SLIDER ──
+  var pullSlider = document.getElementById('pull-slider');
+  var pullVal = document.getElementById('pull-val');
+
+  function updatePullUI() {
+    pullVal.textContent = PULL_FACTOR.toFixed(2);
+    pullSlider.value = PULL_FACTOR;
+    document.getElementById('hud-pull').textContent = PULL_FACTOR.toFixed(2);
+  }
+
+  pullSlider.addEventListener('input', function() {
+    PULL_FACTOR = parseFloat(pullSlider.value);
+    updatePullUI();
+    if (hoveredItem) updateAttractions();
+  });
+
   // ── CONTEXT MENU ──
   var ctxMenu = document.getElementById('ctx-menu');
   var ctxProject = null;
@@ -662,33 +793,32 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   }
 
   items.forEach(function(item) {
-    // Hover → focus shifts to this item (focal plane + subtle parallax)
+    // ── HOVER: focus + parallax invertito + attrazione organica ──
     item.addEventListener('mouseenter', function() {
       hoveredItem = item;
       var z = parseFloat(item.dataset.z) || 0;
-      // Move focal plane to the item's Z (relative to camera)
+      // Piano focale si sposta sulla Z dell'item
       focalTarget = z + camera.z;
-      // Subtle parallax: scene shifts 10% toward item
-      // Parse transform values without regex (template literal safe)
-      var tf = item.style.transform || '';
-      var p1 = tf.indexOf('(');
-      var p2 = tf.indexOf(')');
-      var parts = (p1 > -1 && p2 > p1) ? tf.substring(p1 + 1, p2).split(',') : [];
-      var ix = parseFloat(parts[0]) || 0;
-      var iy = parseFloat(parts[1]) || 0;
-      hoverOffset.x = ix * 0.10;
-      hoverOffset.y = iy * 0.10;
-      hoverOffset.z = -z * 0.10;
+
+      // Parallax INVERTITO: scena si sposta in direzione opposta all'item
+      // → visivamente l'item si avvicina al centro/cursore (non scappa)
+      var bp = itemBasePos[parseInt(item.dataset.index)];
+      hoverOffset.x = -bp.x * 0.10;  // NEGATIVO = item viene verso centro
+      hoverOffset.y = -bp.y * 0.10;
+      hoverOffset.z = z * 0.10;
+
+      // Attiva attrazione organica per tutti gli items
+      updateAttractions();
       startAnimate();
     });
 
     item.addEventListener('mouseleave', function() {
       if (hoveredItem === item) {
         hoveredItem = null;
-        // Return parallax to zero, keep focal where it was
         hoverOffset.x = 0;
         hoverOffset.y = 0;
         hoverOffset.z = 0;
+        updateAttractions(); // target → 0 per tutti
         startAnimate();
       }
     });
@@ -702,7 +832,6 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     item.addEventListener('click', function(e) {
       if (Math.abs(e.clientX - dragStart.x) > 5) return;
       hideCtx();
-      // Click opens context menu instead of flying
       showCtx(e.clientX + 10, e.clientY, item.dataset.project);
     });
   });
@@ -749,8 +878,9 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     if (e.key === 'ArrowRight') { baseTarget.x -= step; e.preventDefault(); }
     if (e.key === '[') { fStop = Math.max(1.0, fStop - 0.5); updateApertureUI(); }
     if (e.key === ']') { fStop = Math.min(16, fStop + 0.5); updateApertureUI(); }
+    if (e.key === '-') { PULL_FACTOR = Math.max(0, +(PULL_FACTOR - 0.01).toFixed(2)); updatePullUI(); }
+    if (e.key === '=' || e.key === '+') { PULL_FACTOR = Math.min(0.10, +(PULL_FACTOR + 0.01).toFixed(2)); updatePullUI(); }
     if (e.key === 'r') { baseTarget.x = 0; baseTarget.y = 0; baseTarget.z = 0; focalTarget = 0; }
-    // 1/2/3 → switch layout
     if (e.key === '1') window.switchLayout('fibonacci');
     if (e.key === '2') window.switchLayout('cluster');
     if (e.key === '3') window.switchLayout('alpha');
@@ -765,8 +895,9 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   };
 
   // ── INIT ──
-  layoutFibonacci();
+  layoutAlpha(); // A-Z come default (migliore della spirale Fibonacci)
   updateApertureUI();
+  updatePullUI();
   updateDoF();
 })();
 </script>
