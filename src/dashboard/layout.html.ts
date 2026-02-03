@@ -28,81 +28,88 @@ ${opts.css}
   <span class="subtitle">PTI Multi-Agent Hub</span>
   <div style="position:relative;margin-left:auto;display:flex;align-items:center;gap:var(--s3)">
     <button class="typo-gear" onclick="toggleTypoMenu()" title="Design Tokens">&#9881;</button>
-    <div class="typo-popover" id="typo-popover">
-      <label>Font <span class="typo-size-display" id="typo-font-val"></span></label>
-      <select id="typo-font" onchange="applyTokens()">
-        <option value="'Helvetica Neue', Helvetica, Arial, sans-serif" selected>Helvetica Neue</option>
-        <option value="'DM Sans', 'Helvetica Neue', -apple-system, sans-serif">DM Sans</option>
-        <option value="'Inter', -apple-system, sans-serif">Inter</option>
-        <option value="-apple-system, BlinkMacSystemFont, sans-serif">System</option>
-      </select>
-      <label>Mono</label>
-      <select id="typo-mono" onchange="applyTokens()">
-        <option value="'DM Mono', 'SF Mono', 'Menlo', monospace">DM Mono</option>
-        <option value="'SF Mono', 'Menlo', monospace" selected>SF Mono</option>
-        <option value="'JetBrains Mono', 'Menlo', monospace">JetBrains Mono</option>
-      </select>
-      <label>Base size <span class="typo-size-display" id="typo-size-val">13px</span></label>
-      <input type="range" min="8" max="21" step="1" value="13" id="typo-size" oninput="applyTokens()">
-      <label>Line height</label>
-      <select id="typo-lh" onchange="applyTokens()">
-        <option value="1.4">1.4 — compatto</option>
-        <option value="1.618" selected>&#966; 1.618 — golden</option>
-        <option value="1.8">1.8 — arioso</option>
-      </select>
-      <label>Weight</label>
-      <select id="typo-weight" onchange="applyTokens()">
-        <option value="300">300 — light</option>
-        <option value="400" selected>400 — regular</option>
-        <option value="500">500 — medium</option>
-      </select>
-      <label>Letter-spacing</label>
-      <select id="typo-tracking" onchange="applyTokens()">
-        <option value="-0.02em">stretto</option>
-        <option value="-0.01em" selected>standard</option>
-        <option value="0em">neutro</option>
-        <option value="0.02em">aperto</option>
-      </select>
-      <label>Spacing scale</label>
-      <select id="typo-spacing" onchange="applyTokens()">
-        <option value="phi" selected>&#966; PHI (8 13 21 34 55 89 144)</option>
-        <option value="compact">Compact (4 8 12 16 24 32 48)</option>
-        <option value="relaxed">Relaxed (8 16 24 32 48 64 96)</option>
-      </select>
-      <label>Theme</label>
-      <button class="night-toggle" id="night-btn" onclick="toggleNight()">
-        <span id="night-icon">&#9790;</span> Night view
-      </button>
-      <label>Ambient</label>
-      <select id="granim-palette" onchange="applyGranim()">
-        <option value="warm" selected>Warm (amber/gold)</option>
-        <option value="cool">Cool (blue/steel)</option>
-        <option value="earth">Earth (green/moss)</option>
-        <option value="rose">Rose (pink/copper)</option>
-        <option value="off">Off</option>
-      </select>
-      <label>Intensity <span class="typo-size-display" id="granim-opacity-val">10%</span></label>
-      <input type="range" min="0" max="30" step="2" value="10" id="granim-opacity" oninput="applyGranim()">
-      <label>Debug</label>
-      <button class="night-toggle" id="probe-btn" onclick="toggleProbe()">
-        PTI Probe
-      </button>
-      <label style="margin-top:var(--s4);border-top:1px solid var(--border);padding-top:var(--s3)">Rytmo Mapping</label>
-      <div id="rytmo-panel"></div>
-      <div style="display:flex;gap:var(--s1);margin-top:var(--s2)">
-        <button class="night-toggle" style="flex:1" onclick="rytmoAddSlot()">+ Mapping</button>
-      </div>
-      <label>Tap gap <span class="typo-size-display" id="rytmo-gap-val"></span></label>
-      <input type="range" min="200" max="800" step="50" value="400" id="rytmo-gap" oninput="rytmoGapChange()">
-      <label style="margin-top:var(--s4);border-top:1px solid var(--border);padding-top:var(--s3)">Server</label>
-      <button class="night-toggle" onclick="restartServer()">Riavvia Server</button>
-    </div>
     <div class="health-indicator" id="health">
       <span class="dot" id="health-dot"></span>
       <span id="health-text">connesso</span>
     </div>
   </div>
 </header>
+
+<!-- Popover at body level — outside header stacking context -->
+<div class="typo-popover" id="typo-popover">
+  <label>Font <span class="typo-size-display" id="typo-font-val"></span></label>
+  <select id="typo-font" onchange="applyTokens()">
+    <option value="'Helvetica Neue', Helvetica, Arial, sans-serif" selected>Helvetica Neue</option>
+    <option value="'DM Sans', 'Helvetica Neue', -apple-system, sans-serif">DM Sans</option>
+    <option value="'Inter', -apple-system, sans-serif">Inter</option>
+    <option value="-apple-system, BlinkMacSystemFont, sans-serif">System</option>
+  </select>
+  <label>Mono</label>
+  <select id="typo-mono" onchange="applyTokens()">
+    <option value="'DM Mono', 'SF Mono', 'Menlo', monospace">DM Mono</option>
+    <option value="'SF Mono', 'Menlo', monospace" selected>SF Mono</option>
+    <option value="'JetBrains Mono', 'Menlo', monospace">JetBrains Mono</option>
+  </select>
+  <label>Base size <span class="typo-size-display" id="typo-size-val">13px</span></label>
+  <input type="range" min="8" max="21" step="1" value="13" id="typo-size" oninput="applyTokens()">
+  <label>Line height</label>
+  <select id="typo-lh" onchange="applyTokens()">
+    <option value="1.4">1.4 — compatto</option>
+    <option value="1.618" selected>&#966; 1.618 — golden</option>
+    <option value="1.8">1.8 — arioso</option>
+  </select>
+  <label>Weight</label>
+  <select id="typo-weight" onchange="applyTokens()">
+    <option value="300">300 — light</option>
+    <option value="400" selected>400 — regular</option>
+    <option value="500">500 — medium</option>
+  </select>
+  <label>Letter-spacing</label>
+  <select id="typo-tracking" onchange="applyTokens()">
+    <option value="-0.02em">stretto</option>
+    <option value="-0.01em" selected>standard</option>
+    <option value="0em">neutro</option>
+    <option value="0.02em">aperto</option>
+  </select>
+  <label>Spacing scale</label>
+  <select id="typo-spacing" onchange="applyTokens()">
+    <option value="phi" selected>&#966; PHI (8 13 21 34 55 89 144)</option>
+    <option value="compact">Compact (4 8 12 16 24 32 48)</option>
+    <option value="relaxed">Relaxed (8 16 24 32 48 64 96)</option>
+  </select>
+  <label>Theme</label>
+  <select id="theme-select" onchange="applyTheme()">
+    <option value="default">Luce — Swiss Warm</option>
+    <option value="night">Notte — Carbon Amber</option>
+    <option value="primavera">Primavera — Sage &amp; Peach</option>
+    <option value="estate">Estate — Sea &amp; Sand</option>
+    <option value="ellenica">Ellenica — Aegean Blue</option>
+    <option value="benessere">Benessere — Mineral Spa</option>
+  </select>
+  <label>Ambient</label>
+  <select id="granim-palette" onchange="applyGranim()">
+    <option value="warm" selected>Warm (amber/gold)</option>
+    <option value="cool">Cool (blue/steel)</option>
+    <option value="earth">Earth (green/moss)</option>
+    <option value="rose">Rose (pink/copper)</option>
+    <option value="off">Off</option>
+  </select>
+  <label>Intensity <span class="typo-size-display" id="granim-opacity-val">10%</span></label>
+  <input type="range" min="0" max="30" step="2" value="10" id="granim-opacity" oninput="applyGranim()">
+  <label>Debug</label>
+  <button class="night-toggle" id="probe-btn" onclick="toggleProbe()">
+    PTI Probe
+  </button>
+  <label style="margin-top:var(--s4);border-top:1px solid var(--border);padding-top:var(--s3)">Rytmo Mapping</label>
+  <div id="rytmo-panel"></div>
+  <div style="display:flex;gap:var(--s1);margin-top:var(--s2)">
+    <button class="night-toggle" style="flex:1" onclick="rytmoAddSlot()">+ Mapping</button>
+  </div>
+  <label>Tap gap <span class="typo-size-display" id="rytmo-gap-val"></span></label>
+  <input type="range" min="200" max="800" step="50" value="400" id="rytmo-gap" oninput="rytmoGapChange()">
+  <label style="margin-top:var(--s4);border-top:1px solid var(--border);padding-top:var(--s3)">Server</label>
+  <button class="night-toggle" onclick="restartServer()">Riavvia Server</button>
+</div>
 
 <div class="layout">
 
@@ -157,6 +164,23 @@ ${opts.css}
 
     <!-- CHAT VIEW -->
     <div id="chat-view" class="view active">
+      <div class="chat-toolbar">
+        <select id="chat-font-select" onchange="applyChatFont()">
+          <option value="inherit">Font: default</option>
+          <option value="'Georgia', 'Times New Roman', serif">Georgia</option>
+          <option value="'Literata', Georgia, serif">Literata</option>
+          <option value="'DM Sans', sans-serif">DM Sans</option>
+          <option value="'SF Mono', 'Menlo', monospace">Mono</option>
+        </select>
+        <select id="chat-size-select" onchange="applyChatFont()">
+          <option value="inherit">Size: default</option>
+          <option value="11px">11px</option>
+          <option value="13px">13px</option>
+          <option value="15px">15px</option>
+          <option value="17px">17px</option>
+          <option value="20px">20px</option>
+        </select>
+      </div>
       <div class="view-scroll" id="chat-content">
         <div id="sessions-grid" class="sessions-grid"></div>
         <div id="messages-area" class="messages-list" style="display:none;"></div>
@@ -298,6 +322,7 @@ ${opts.css}
         <button class="btn btn-ghost" onclick="graphSnapshot()">Snapshot</button>
         <button class="btn btn-ghost" onclick="graphDiff()">Diff</button>
         <button class="btn btn-ghost" onclick="graphFitAll()">Fit</button>
+        <div class="ptig-metrics" id="ptig-metrics" style="display:none"></div>
         <div class="diff-summary" id="diff-summary" style="display:none"></div>
       </div>
       <div class="graph-container" id="graph-container">

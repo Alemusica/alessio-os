@@ -305,7 +305,7 @@ interface ModuleInfo {
   level: string;          // atomo|molecola|cellula|tessuto|organo
 }
 
-function collectTsFiles(dir: string, rootDir: string): string[] {
+export function collectTsFiles(dir: string, rootDir: string): string[] {
   const results: string[] = [];
   try {
     const entries = readdirSync(dir);

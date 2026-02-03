@@ -11,8 +11,7 @@
 
 import { execSync } from 'child_process';
 import { surqlQuery } from '../pti/surreal-bridge.js';
-import { homedir } from 'os';
-import { join } from 'path';
+import { resolveProjectPath } from '../utils/paths.js';
 
 // ==================== TIPI ====================
 
@@ -54,8 +53,6 @@ export interface GhDiscussion {
 
 // ==================== REPO MAPPING ====================
 
-const HOME = homedir();
-
 const PROJECT_REPOS: Record<string, string> = {
   'alessio-os': 'Alemusica/alessio-os',
   'phonon-ui': 'Alemusica/phonon-ui',
@@ -65,15 +62,9 @@ const PROJECT_REPOS: Record<string, string> = {
   'innesti-revamp-draft': 'Alemusica/innesti-revamp-draft',
   'nico': 'Alemusica/nico',
   'natale-order-manager-main': 'Alemusica/natale-order-manager',
-};
-
-const PROJECT_PATHS: Record<string, string> = {
-  'alessio-os': join(HOME, 'alessio-os'),
-  'phonon-ui': join(HOME, 'phonon-ui'),
-  'nico': join(HOME, 'nico'),
-  'trovatore': join(HOME, 'trovatore'),
-  'innesti-revamp-draft': join(HOME, 'innesti-revamp-draft'),
-  'natale-order-manager-main': join(HOME, 'natale-order-manager-main'),
+  'ricchexxa-main': 'Alemusica/ricchexxa',
+  'Rememberance': 'Alemusica/Rememberance',
+  'dag-consulting-2-0': 'Alemusica/DagConsulting',
 };
 
 /** Risolvi repo: DB override → hardcoded → null */
@@ -92,10 +83,8 @@ export async function resolveRepo(project: string): Promise<string | null> {
   return PROJECT_REPOS[project] ?? null;
 }
 
-/** Risolvi path locale per operazioni git */
-export function resolveProjectPath(project: string): string {
-  return PROJECT_PATHS[project] ?? join(HOME, project);
-}
+/** Risolvi path locale per operazioni git — re-export da shared paths */
+export { resolveProjectPath };
 
 // ==================== GITHUB DATA ====================
 

@@ -1,124 +1,20 @@
 /**
- * PTI Core Runtime v4.1 — Refactor
+ * PTI Core Runtime v4.1
  *
- * v4.0 → v4.1:
- * - Delta strutturali: DeltaLista, DeltaMappa calcolati automaticamente
- * - Assert bloccanti: opzione per rifiutare delta che violano integrità
- * - Salti integrati nel topological sort (propagazione unificata)
- * - Delta event log: registro temporale per causal tracing
- * - causa(), catena(), simula(): introspezione causale
+ * Organello: GrafoPTI — motore di propagazione incrementale.
+ * Tipi e funzioni pure estratti in graph-types.ts e graph-compute.ts.
  *
- * FATTI:     nodi base, valore assegnato con =
- * DERIVATI:  nodi materializzati, regola con :=
- * AZIONI:    nodi side-effect, eseguiti quando sorgenti cambiano
- * SALTI:     connessioni dichiarate con → (cross-gerarchia)
- * ASSERT:    vincoli invarianti, controllati durante propagazione
- * DELTA:     propagazione incrementale, mai ricalcolo totale
+ * FATTI → DERIVATI → ASSERT → AZIONI (ordine propagazione per livello)
  */
 
-// ==================== TIPI DELTA ====================
+// Re-export types and compute for backward compatibility
+export type { DeltaValore, DeltaLista, DeltaMappa, Delta, DeltaLogEntry, NodoTipo, Nodo, AssertViolation, NodoSnap, GrafoSnapshot } from './graph-types.js';
+export { isDeltaValore, isDeltaLista, isDeltaMappa, computaDelta, patternToRegex } from './graph-compute.js';
 
-export type DeltaValore = { tipo: 'valore'; prima: unknown; dopo: unknown };
-export type DeltaLista = {
-  tipo: 'lista';
-  aggiunti: unknown[];
-  rimossi: unknown[];
-};
-export type DeltaMappa = {
-  tipo: 'mappa';
-  set: Record<string, unknown>;
-  unset: string[];
-};
-export type Delta = DeltaValore | DeltaLista | DeltaMappa;
-
-// Type guards
-export function isDeltaValore(d: Delta): d is DeltaValore { return d.tipo === 'valore'; }
-export function isDeltaLista(d: Delta): d is DeltaLista { return d.tipo === 'lista'; }
-export function isDeltaMappa(d: Delta): d is DeltaMappa { return d.tipo === 'mappa'; }
-
-// ==================== COMPUTE DELTA ====================
-
-export function computaDelta(prima: unknown, dopo: unknown): Delta {
-  // Array → DeltaLista
-  if (Array.isArray(prima) && Array.isArray(dopo)) {
-    const primaSet = new Set(prima.map(x => JSON.stringify(x)));
-    const dopoSet = new Set(dopo.map(x => JSON.stringify(x)));
-    const aggiunti = dopo.filter(x => !primaSet.has(JSON.stringify(x)));
-    const rimossi = prima.filter(x => !dopoSet.has(JSON.stringify(x)));
-    if (aggiunti.length > 0 || rimossi.length > 0) {
-      return { tipo: 'lista', aggiunti, rimossi };
-    }
-    return { tipo: 'valore', prima, dopo };
-  }
-
-  // Plain object → DeltaMappa
-  if (
-    prima !== null && dopo !== null &&
-    typeof prima === 'object' && typeof dopo === 'object' &&
-    !Array.isArray(prima) && !Array.isArray(dopo)
-  ) {
-    const p = prima as Record<string, unknown>;
-    const d = dopo as Record<string, unknown>;
-    const set: Record<string, unknown> = {};
-    const unset: string[] = [];
-    for (const key of Object.keys(d)) {
-      if (p[key] !== d[key]) set[key] = d[key];
-    }
-    for (const key of Object.keys(p)) {
-      if (!(key in d)) unset.push(key);
-    }
-    if (Object.keys(set).length > 0 || unset.length > 0) {
-      return { tipo: 'mappa', set, unset };
-    }
-    return { tipo: 'valore', prima, dopo };
-  }
-
-  // Scalar → DeltaValore
-  return { tipo: 'valore', prima, dopo };
-}
-
-// ==================== DELTA LOG ====================
-
-export interface DeltaLogEntry {
-  timestamp: number;
-  nodoId: string;
-  delta: Delta;
-  causa: string;  // ID del fatto che ha originato la propagazione
-}
-
-// ==================== NODO ====================
-
-export type NodoTipo = 'fatto' | 'derivato' | 'azione' | 'assert';
-
-export interface Nodo {
-  id: string;
-  tipo: NodoTipo;
-  valore: unknown;
-  livello: number;                    // ordine topologico
-  sorgenti: string[];                 // nodi da cui dipendo
-  salti: string[];                    // → [destinazioni]
-  regola?: (sorgenti: Map<string, unknown>, delta: Delta) => unknown;
-  effetto?: (sorgenti: Map<string, unknown>, delta: Delta) => void | Promise<void>;
-  predicato?: (sorgenti: Map<string, unknown>) => boolean;
-  messaggioAssert?: string;
-  bloccante?: boolean;                // assert bloccante: rifiuta delta
-  ultimoDelta?: Delta;
-  accessCount: number;                // per biocache
-}
-
-// ==================== ASSERT VIOLATION ====================
-
-export interface AssertViolation {
-  assertId: string;
-  messaggio: string;
-  sorgenti: Map<string, unknown>;
-  timestamp: number;
-  bloccato: boolean;                  // delta è stato bloccato?
-}
+import type { Delta, DeltaLogEntry, Nodo, NodoTipo, AssertViolation, NodoSnap, GrafoSnapshot } from './graph-types.js';
+import { computaDelta, patternToRegex } from './graph-compute.js';
 
 // ==================== ORDINE PROPAGAZIONE ====================
-// Dentro lo stesso livello: derivato → assert → azione
-// Assicura: computa valori, verifica integrità, poi side-effect
 
 const TIPO_ORDINE: Record<NodoTipo, number> = {
   fatto: 0,
@@ -879,39 +775,4 @@ export class GrafoPTI {
   }
 }
 
-// ==================== WILDCARD HELPERS ====================
-
-/**
- * Converte pattern PTI in regex.
- * 'tavolo.*'       → /^tavolo\.[^.]+$/
- * 'tavolo.*.stato' → /^tavolo\.[^.]+\.stato$/
- * '*.running'      → /^[^.]+\.running$/
- */
-function patternToRegex(pattern: string): RegExp {
-  const escaped = pattern
-    .split('.')
-    .map(seg => seg === '*' ? '[^.]+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('\\.');
-  return new RegExp(`^${escaped}$`);
-}
-
-// ==================== SNAPSHOT TYPES ====================
-
-export interface NodoSnap {
-  id: string;
-  tipo: NodoTipo;
-  valore: unknown;
-  livello: number;
-  sorgenti: string[];
-  salti: string[];
-  bloccante?: boolean;
-  messaggioAssert?: string;
-  accessCount: number;
-}
-
-export interface GrafoSnapshot {
-  nodi: NodoSnap[];
-  log: DeltaLogEntry[];
-  violations: Array<Record<string, unknown>>;
-  timestamp: number;
-}
+// patternToRegex and snapshot types now in graph-compute.ts and graph-types.ts

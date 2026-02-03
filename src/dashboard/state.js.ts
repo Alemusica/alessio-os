@@ -36,8 +36,20 @@ window.alessioOSBridge = function(action, data) {
   }
 };
 
-// ── SSE ──
-const sse = new EventSource('/events');
+// ── SSE (with auto-reconnect) ──
+var sse;
+var sseRetries = 0;
+function connectSSE() {
+  sse = new EventSource('/events');
+  sseRetries = 0;
+  setupSSEListeners(sse);
+}
+function reconnectSSE() {
+  sseRetries++;
+  var delay = Math.min(1000 * Math.pow(1.5, sseRetries), 10000);
+  setTimeout(connectSSE, delay);
+}
+connectSSE();
 const terminal = document.getElementById('terminal');
 
 function addLog(text, cls) {
@@ -319,16 +331,23 @@ function renderAgentsStrip(agents) {
   var strip = document.getElementById('agents-strip');
   if (!strip) return;
   if (!agents.length) { strip.innerHTML = ''; return; }
-  strip.innerHTML = agents.map(function(a) {
+  // Filter: show only agents for current project (or all if no project selected)
+  var filtered = S.project ? agents.filter(function(a) {
+    return !a.project || a.project === S.project;
+  }) : agents;
+  var maxShow = 4;
+  var shown = filtered.slice(0, maxShow);
+  var extra = filtered.length - maxShow;
+  strip.innerHTML = shown.map(function(a) {
     var status = a.status || 'idle';
-    var role = (a.role || 'agent').slice(0, 3);
-    var task = a.current_task ? a.current_task.slice(0, 40) : '';
-    return '<div class="as-agent ' + status + '" title="' + esc(a.role || '') + ': ' + esc(a.current_task || '-') + '">' +
+    var role = a.role || 'agent';
+    var task = a.current_task ? a.current_task.slice(0, 50) : '';
+    return '<div class="as-agent ' + status + '" title="' + esc(role) + ': ' + esc(a.current_task || '-') + '">' +
       '<span class="as-dot"></span>' +
-      '<span>' + esc(role) + '</span>' +
+      '<span class="as-role">' + esc(role) + '</span>' +
       (task ? '<span class="as-task">' + esc(task) + '</span>' : '') +
     '</div>';
-  }).join('');
+  }).join('') + (extra > 0 ? '<span class="as-more">+' + extra + '</span>' : '');
 }
 
 // ── AGENT DEFINITIONS (persistent, per-project) ──
@@ -484,125 +503,181 @@ function renderKB(kb) {
 
 // ── SSE EVENTS (incremental — delta, non ricalcolo) ──
 
-// Granular update: agents only
-sse.addEventListener('agents:update', function(e) {
-  var d = parseSSE(e);
-  var agents = d.agents || [];
-  renderAgents(agents);
-  document.getElementById('kb-agents-count').textContent = agents.length;
-  var mainEl = document.querySelector('.main');
-  if (agents.length === 0) {
-    mainEl.classList.remove('thinking');
-    renderAgentsStrip([]);
-  }
-});
-
-// Granular update: tasks only
-sse.addEventListener('tasks:update', function(e) {
-  var d = parseSSE(e);
-  var tasks = d.tasks || [];
-  renderTasks(tasks);
-  document.getElementById('kb-tasks-count').textContent = tasks.length;
-});
-
-// Granular update: KB stats only
-sse.addEventListener('kb:update', function(e) {
-  var d = parseSSE(e);
-  if (d.kb) renderKB(d.kb);
-});
-
-// Granular update: sidebar projects only
-sse.addEventListener('projects:update', function(e) {
-  var d = parseSSE(e);
-  renderSidebarProjects(d.chatProjects || []);
-});
-
-// Legacy: full state event (used for initial SSE connection)
-sse.addEventListener('state', function(e) {
-  var state = parseSSE(e);
-  renderAgents(state.agents || []);
-  renderTasks(state.tasks || []);
-  if (state.kb) renderKB(state.kb);
-  document.getElementById('kb-agents-count').textContent = (state.agents || []).length;
-  document.getElementById('kb-tasks-count').textContent = (state.tasks || []).length;
-  renderSidebarProjects(state.chatProjects || []);
-  var mainEl = document.querySelector('.main');
-  if ((state.agents || []).length === 0) {
-    mainEl.classList.remove('thinking');
-    renderAgentsStrip([]);
-  }
-});
-
-sse.addEventListener('log', function(e) {
-  var d = parseSSE(e);
-  addLog(d.text, d.cls || '');
-  // Agent dispatched → start thinking glow
-  if (d.cls === 'agent-name' || (d.text && d.text.indexOf('dispatched') > -1)) {
-    document.querySelector('.main').classList.add('thinking');
-  }
-});
-
-sse.addEventListener('response', function(e) {
-  var d = parseSSE(e);
-  // Agent responded → stop thinking glow
-  document.querySelector('.main').classList.remove('thinking');
-  if (d.text) {
-    appendChatBubble('assistant', d.text);
-  }
-  // Auto-reload sessions sidebar count
-  if (S.project) {
-    refreshSessionsSidebar(S.project);
-  }
-});
-
-sse.addEventListener('open', function() {
-  addLog('Dashboard connessa', 'event');
-  document.getElementById('health-dot').style.background = 'var(--green)';
-});
-
-sse.addEventListener('error', function() {
-  addLog('Connessione persa', 'error');
-  document.getElementById('health-dot').style.background = 'var(--rose)';
-});
-
-sse.addEventListener('pti:delta', function(e) {
-  try {
-    var data = parseSSE(e);
-    if (S.view !== 'graph') return;
-    var entries = data.entries || [];
-    entries.forEach(function(entry, i) {
-      setTimeout(function() { GraphRenderer.flash(entry.nodoId); }, i * 120);
-    });
-  } catch (err) { /* skip */ }
-});
-
-sse.addEventListener('action:new', function(e) {
-  try {
-    var a = parseSSE(e);
-    // Prepend to actions timeline if visible and matches current project
-    if (S.view === 'timeline' && timelineMode === 'actions' && S.project === a.project) {
-      var icon = ACTION_ICONS[a.action_type] || '\u25CF';
-      var color = ACTION_COLORS[a.action_type] || 'var(--dim)';
-      var time = a.created_at ? fmtTime(a.created_at, 'time') : '';
-      var html = '<div class="action-entry action-entry-new">' +
-        '<span class="action-icon" style="color:' + color + '">' + icon + '</span>' +
-        '<div class="action-content">' +
-          '<div class="action-title">' + esc(a.title) + '</div>' +
-          (a.details ? '<div class="action-details">' + esc(a.details).slice(0, 120) + '</div>' : '') +
-          '<div class="action-meta">' + (a.agent_id ? esc(a.agent_id) + ' | ' : '') + time + '</div>' +
-        '</div>' +
-      '</div>';
-      var el = document.getElementById('actions-timeline');
-      if (el) {
-        var empty = el.querySelector('.empty');
-        if (empty) empty.remove();
-        el.insertAdjacentHTML('afterbegin', html);
-      }
+function setupSSEListeners(es) {
+  // Granular update: agents only
+  es.addEventListener('agents:update', function(e) {
+    var d = parseSSE(e);
+    var agents = d.agents || [];
+    renderAgents(agents);
+    document.getElementById('kb-agents-count').textContent = agents.length;
+    var mainEl = document.querySelector('.main');
+    if (agents.length === 0) {
+      mainEl.classList.remove('thinking');
+      renderAgentsStrip([]);
     }
-    // Always log to terminal
-    addLog('[ACTION] ' + a.action_type + ': ' + (a.title || ''), 'event');
-  } catch (err) { /* skip */ }
-});
+  });
+
+  // Granular update: tasks only
+  es.addEventListener('tasks:update', function(e) {
+    var d = parseSSE(e);
+    var tasks = d.tasks || [];
+    renderTasks(tasks);
+    document.getElementById('kb-tasks-count').textContent = tasks.length;
+  });
+
+  // Granular update: KB stats only
+  es.addEventListener('kb:update', function(e) {
+    var d = parseSSE(e);
+    if (d.kb) renderKB(d.kb);
+  });
+
+  // Granular update: sidebar projects only
+  es.addEventListener('projects:update', function(e) {
+    var d = parseSSE(e);
+    renderSidebarProjects(d.chatProjects || []);
+  });
+
+  // Legacy: full state event (used for initial SSE connection)
+  es.addEventListener('state', function(e) {
+    var state = parseSSE(e);
+    renderAgents(state.agents || []);
+    renderTasks(state.tasks || []);
+    if (state.kb) renderKB(state.kb);
+    document.getElementById('kb-agents-count').textContent = (state.agents || []).length;
+    document.getElementById('kb-tasks-count').textContent = (state.tasks || []).length;
+    renderSidebarProjects(state.chatProjects || []);
+    var mainEl = document.querySelector('.main');
+    if ((state.agents || []).length === 0) {
+      mainEl.classList.remove('thinking');
+      renderAgentsStrip([]);
+    }
+  });
+
+  es.addEventListener('log', function(e) {
+    var d = parseSSE(e);
+    addLog(d.text, d.cls || '');
+    // Agent dispatched → start thinking glow
+    if (d.cls === 'agent-name' || (d.text && d.text.indexOf('dispatched') > -1)) {
+      document.querySelector('.main').classList.add('thinking');
+    }
+  });
+
+  es.addEventListener('response', function(e) {
+    var d = parseSSE(e);
+    // Agent responded → stop thinking glow
+    document.querySelector('.main').classList.remove('thinking');
+    // Remove thinking stream element (finalize it)
+    var thinkEl = document.getElementById('thinking-stream');
+    if (thinkEl) thinkEl.removeAttribute('id');
+    if (d.text) {
+      appendChatBubble('assistant', d.text);
+    }
+    // Auto-reload sessions sidebar count
+    if (S.project) {
+      refreshSessionsSidebar(S.project);
+    }
+  });
+
+  es.addEventListener('open', function() {
+    sseRetries = 0;
+    addLog('Dashboard connessa', 'event');
+    document.getElementById('health-dot').style.background = 'var(--green)';
+  });
+
+  es.addEventListener('error', function() {
+    addLog('Connessione persa — riconnessione...', 'error');
+    document.getElementById('health-dot').style.background = 'var(--rose)';
+    es.close();
+    reconnectSSE();
+  });
+
+  es.addEventListener('pti:delta', function(e) {
+    try {
+      var data = parseSSE(e);
+      if (S.view !== 'graph') return;
+      var entries = data.entries || [];
+      entries.forEach(function(entry, i) {
+        setTimeout(function() { GraphRenderer.flash(entry.nodoId); }, i * 120);
+      });
+    } catch (err) { /* skip */ }
+  });
+
+  es.addEventListener('action:new', function(e) {
+    try {
+      var a = parseSSE(e);
+      // Prepend to actions timeline if visible and matches current project
+      if (S.view === 'timeline' && timelineMode === 'actions' && S.project === a.project) {
+        var icon = ACTION_ICONS[a.action_type] || '\u25CF';
+        var color = ACTION_COLORS[a.action_type] || 'var(--dim)';
+        var time = a.created_at ? fmtTime(a.created_at, 'time') : '';
+        var html = '<div class="action-entry action-entry-new">' +
+          '<span class="action-icon" style="color:' + color + '">' + icon + '</span>' +
+          '<div class="action-content">' +
+            '<div class="action-title">' + esc(a.title) + '</div>' +
+            (a.details ? '<div class="action-details">' + esc(a.details).slice(0, 120) + '</div>' : '') +
+            '<div class="action-meta">' + (a.agent_id ? esc(a.agent_id) + ' | ' : '') + time + '</div>' +
+          '</div>' +
+        '</div>';
+        var el = document.getElementById('actions-timeline');
+        if (el) {
+          var empty = el.querySelector('.empty');
+          if (empty) empty.remove();
+          el.insertAdjacentHTML('afterbegin', html);
+        }
+      }
+      // Always log to terminal
+      addLog('[ACTION] ' + (a.action_type || 'unknown') + ': ' + (a.title || ''), 'event');
+    } catch (err) { /* skip */ }
+  });
+
+  // Thinking stream → show in chat + terminal
+  es.addEventListener('thinking', function(e) {
+    try {
+      var d = parseSSE(e);
+      var text = d.text || '';
+      var aid = d.agentId || '';
+      // Append to or create thinking bubble in chat
+      var thinkEl = document.getElementById('thinking-stream');
+      if (!thinkEl) {
+        var html = '<div class="msg msg-assistant">' +
+          '<div class="msg-header"><span class="msg-role">thinking</span> <span class="msg-time thinking-pulse">' + esc(aid) + '</span></div>' +
+          '<div class="msg-thinking" id="thinking-stream" style="display:block"></div>' +
+        '</div>';
+        var area = document.getElementById('messages-area');
+        if (area) area.insertAdjacentHTML('beforeend', html);
+        scrollToBottom('chat-content');
+        thinkEl = document.getElementById('thinking-stream');
+      }
+      if (thinkEl) {
+        thinkEl.textContent += text;
+        scrollToBottom('chat-content');
+      }
+      // Also show in terminal
+      addLog('[thinking] ' + text.slice(0, 100).replace(/\\n/g, ' '), 'dim');
+    } catch (err) { /* skip */ }
+  });
+
+  // Tool use → show in chat + terminal
+  es.addEventListener('tool_use', function(e) {
+    try {
+      var d = parseSSE(e);
+      var tool = d.toolName || 'tool';
+      var aid = d.agentId || '';
+      var inputStr = '';
+      try { inputStr = typeof d.input === 'string' ? d.input : JSON.stringify(d.input || {}); } catch(x) {}
+      // Show tool use badge in chat
+      var html = '<div class="msg msg-tool-use">' +
+        '<span class="tool-badge">' + esc(tool) + '</span>' +
+        (inputStr ? '<span class="tool-input">' + esc(inputStr).slice(0, 120) + '</span>' : '') +
+      '</div>';
+      var area = document.getElementById('messages-area');
+      if (area) area.insertAdjacentHTML('beforeend', html);
+      scrollToBottom('chat-content');
+      addLog('[' + aid + '] tool: ' + tool, 'event');
+    } catch (err) { /* skip */ }
+  });
+
+}
 
 // ── INITIAL LOAD ──
 apiCall('/api/state').then(function(state) {
@@ -871,7 +946,8 @@ function toggleMic() {
   var prompt = document.getElementById('dz-prompt');
 
   if (speechActive && speechRec) {
-    // Just stop — onend handles everything (including interim text)
+    // Mark inactive BEFORE stop so onend knows user explicitly stopped
+    speechActive = false;
     speechRec.stop();
     return;
   }
@@ -914,7 +990,13 @@ function toggleMic() {
   };
 
   speechRec.onend = function() {
-    speechActive = false;
+    // Web Speech API auto-stops after silence even with continuous=true.
+    // If user hasn't explicitly stopped (speechActive still true), auto-restart.
+    if (speechActive) {
+      try { speechRec.start(); } catch(e) { /* already running */ }
+      return;
+    }
+
     btn.classList.remove('recording');
     btn.textContent = 'Registra';
     prompt.textContent = '| Drop OCR/STT';

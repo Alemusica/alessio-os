@@ -61,6 +61,7 @@ import type { AgentRole } from './context-builder.js';
 import { spawn, execSync, ChildProcess } from 'child_process';
 import { unlinkSync, existsSync } from 'fs';
 import { homedir } from 'os';
+import { resolveProjectPath as resolveProjectPathShared } from '../utils/paths.js';
 
 // Resolve claude CLI path at startup — avoid hardcoded path ENOENT
 const CLAUDE_BIN = (() => {
@@ -92,6 +93,8 @@ export interface OrchestratorConfig {
   maxParallelAgents?: number;
   onLog?: (text: string, cls: string) => void;
   onResponse?: (text: string, taskId: string) => void;
+  onThinking?: (text: string, agentId: string) => void;
+  onToolUse?: (toolName: string, input: unknown, agentId: string) => void;
 }
 
 interface RouteResult {
@@ -158,25 +161,8 @@ function detectRole(text: string): AgentRole {
   return 'coder';
 }
 
-function resolveProjectCwd(project: string): string {
-  const home = homedir();
-  const paths: Record<string, string> = {
-    'alessio-os': join(home, 'alessio-os'),
-    'trovatore': join(home, 'trovatore'),
-    'social-cli-mcp': join(home, 'social-cli-mcp'),
-    'ui-canvas-mcp': join(home, 'ui-canvas-mcp'),
-    'gestionale-nautica-main': join(home, 'gestionale-nautica-main'),
-    'ricchexxa-main': join(home, 'ricchexxa-main'),
-    'dag-consulting-2-0': join(home, 'Documents/Web/Dag Consulting 2.0'),
-    'nico': join(home, 'nico'),
-    'looperpedal': join(home, 'looperpedal'),
-    'abletonscripts': join(home, 'abletonscripts'),
-    'innesti-revamp-draft': join(home, 'innesti-revamp-draft'),
-    'phonon-ui': join(home, 'phonon-ui'),
-    'xyl-excel': join(home, 'xyl-excel'),
-  };
-  return paths[project] ?? join(home, project);
-}
+// Unified project path resolution — single canonical map in utils/paths.ts
+const resolveProjectCwd = resolveProjectPathShared;
 
 // ==================== ORCHESTRATORE PTI v4 ====================
 
@@ -190,6 +176,8 @@ export class Orchestrator {
   private agentDoneSeq = 0;
   private log: (text: string, cls: string) => void;
   private onResponse: (text: string, taskId: string) => void;
+  private onThinking: (text: string, agentId: string) => void;
+  private onToolUse: (toolName: string, input: unknown, agentId: string) => void;
 
   constructor(config: OrchestratorConfig) {
     this.sessionId = config.sessionId ?? randomUUID();
@@ -197,6 +185,8 @@ export class Orchestrator {
     this.maxParallel = config.maxParallelAgents ?? 2;
     this.log = config.onLog ?? ((t, c) => console.log(`[orch:${c}] ${t}`));
     this.onResponse = config.onResponse ?? (() => {});
+    this.onThinking = config.onThinking ?? (() => {});
+    this.onToolUse = config.onToolUse ?? (() => {});
 
     this.grafo = new GrafoPTI({
       onViolation: (v) => {
@@ -491,6 +481,8 @@ export class Orchestrator {
       '--mcp-config', '{"mcpServers":{}}', // nessun MCP server
       '--strict-mcp-config',      // ignora config globale
       '--allowedTools', 'Read,Write,Edit,Bash,Glob,Grep,WebSearch,WebFetch',  // abilita tool essenziali + ricerca web
+      '--output-format', 'stream-json',  // streaming JSON per thinking + tool_use
+      '--verbose',                         // richiesto da stream-json con -p
     ];
     if (systemPrompt) {
       args.push('--system-prompt', systemPrompt);
@@ -518,11 +510,46 @@ export class Orchestrator {
     };
     this.running.set(agentId, agent);
 
+    // Parse stream-json events — CLI emits complete message objects per line:
+    //   {"type":"system","subtype":"init",...}
+    //   {"type":"assistant","message":{"content":[{type:"thinking",...},{type:"text",...},{type:"tool_use",...}]}}
+    //   {"type":"user","message":{...}}  (tool results)
+    //   {"type":"result","subtype":"success","result":"..."}
+    let streamBuf = '';
     child.stdout.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      agent.output += text;
-      // cls 'stream' → UI lo mostra in log area, non come risposta chat
-      this.log(text, 'stream');
+      streamBuf += chunk.toString();
+      const lines = streamBuf.split('\n');
+      streamBuf = lines.pop() ?? ''; // keep incomplete last line
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const evt = JSON.parse(line);
+
+          // assistant message: extract thinking, tool_use, text from content blocks
+          if (evt.type === 'assistant' && evt.message?.content) {
+            for (const block of evt.message.content) {
+              if (block.type === 'thinking' && block.thinking) {
+                this.onThinking(block.thinking, agentId);
+                this.log(`[${agentId}] thinking: ${block.thinking.slice(0, 80)}...`, 'dim');
+              } else if (block.type === 'text' && block.text) {
+                agent.output += block.text;
+                this.log(block.text, 'stream');
+              } else if (block.type === 'tool_use' || block.type === 'server_tool_use') {
+                this.onToolUse(block.name, block.input, agentId);
+                this.log(`[${agentId}] tool: ${block.name}`, 'event');
+              }
+            }
+          }
+          // result event: final text
+          else if (evt.type === 'result' && evt.result) {
+            agent.output = evt.result;
+          }
+        } catch {
+          // Non-JSON line (stderr leak or plain text fallback)
+          agent.output += line;
+          this.log(line, 'stream');
+        }
+      }
     });
 
     child.stderr.on('data', (chunk: Buffer) => {

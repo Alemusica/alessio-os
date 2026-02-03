@@ -45,7 +45,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Title bar styling — dark, minimal
         window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.08, alpha: 1.0)
-        window.appearance = NSAppearance(named: .darkAqua)
+        window.appearance = nil  // Follow system appearance for better font rendering
 
         // WebView config
         let config = WKWebViewConfiguration()
@@ -70,6 +70,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         contentController.addUserScript(earlyShim)
 
         webView = WKWebView(frame: .zero, configuration: config)
+        webView.allowsBackForwardNavigationGestures = true
+        // Better text rendering — match Safari quality
+        webView.setValue(false, forKey: "drawsBackground")
         navDelegate = NavigationDelegate()
         uiDelegate = WebUIDelegate()
         webView.navigationDelegate = navDelegate
@@ -138,8 +141,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         actionsMenu.items.last?.representedObject = "stt.toggle" as NSString
         actionsMenu.addItem(NSMenuItem(title: "Design Tokens", action: #selector(aosAction(_:)), keyEquivalent: ","))
         actionsMenu.items.last?.representedObject = "design.tokens" as NSString
-        actionsMenu.addItem(NSMenuItem(title: "Night Mode", action: #selector(aosAction(_:)), keyEquivalent: ""))
-        actionsMenu.items.last?.representedObject = "design.night" as NSString
+        // Theme submenu
+        let themeSubmenu = NSMenu(title: "Theme")
+        let themes: [(String, String, String)] = [
+            ("Luce — Swiss Warm", "default", ""),
+            ("Notte — Carbon Amber", "night", ""),
+            ("Primavera — Sage & Peach", "primavera", ""),
+            ("Estate — Sea & Sand", "estate", ""),
+            ("Ellenica — Aegean Blue", "ellenica", ""),
+            ("Benessere — Mineral Spa", "benessere", ""),
+        ]
+        for (title, themeId, key) in themes {
+            let item = NSMenuItem(title: title, action: #selector(setTheme(_:)), keyEquivalent: key)
+            item.representedObject = themeId as NSString
+            themeSubmenu.addItem(item)
+        }
+        let themeMenuItem = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
+        themeMenuItem.submenu = themeSubmenu
+        actionsMenu.addItem(themeMenuItem)
+
         actionsMenu.addItem(NSMenuItem(title: "PTI Probe", action: #selector(aosAction(_:)), keyEquivalent: ""))
         actionsMenu.items.last?.representedObject = "design.probe" as NSString
         actionsMenu.addItem(NSMenuItem.separator())
@@ -149,6 +169,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         actionsMenu.items.last?.representedObject = "debug.toggle" as NSString
         actionsMenu.addItem(NSMenuItem(title: "Log AOS State", action: #selector(aosAction(_:)), keyEquivalent: ""))
         actionsMenu.items.last?.representedObject = "debug.state" as NSString
+        actionsMenu.addItem(NSMenuItem.separator())
+        let restartActionItem = NSMenuItem(title: "Restart Server", action: #selector(restartDashboard), keyEquivalent: "R")
+        restartActionItem.keyEquivalentModifierMask = [.command, .shift]
+        actionsMenu.addItem(restartActionItem)
         let actionsMenuItem = NSMenuItem()
         actionsMenuItem.submenu = actionsMenu
         mainMenu.addItem(actionsMenuItem)
@@ -184,6 +208,90 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func restartDashboard() {
         print("[AlessioOS] Restarting dashboard server...")
+
+        // Show arcade boot screen
+        let bootHtml = """
+        <html>
+        <head><style>
+            @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+            @keyframes scanline { 0%{top:0} 100%{top:100%} }
+            body { background:#0a0a0a; color:#e0c97f; font-family:'Courier New',monospace;
+                   display:flex; align-items:center; justify-content:center; height:100vh; margin:0;
+                   overflow:hidden; }
+            .boot { text-align:left; max-width:600px; width:90%; }
+            .title { font-size:28px; font-weight:bold; letter-spacing:4px; margin-bottom:20px;
+                     text-shadow: 0 0 10px rgba(224,201,127,0.5); }
+            .line { font-size:13px; color:#888; margin:3px 0; opacity:0;
+                    animation: fadein 0.15s forwards; }
+            .line.ok { color:#7a9f6a; }
+            .line.warn { color:#c08080; }
+            .cursor { display:inline-block; animation:blink 0.7s step-end infinite; }
+            .scanline { position:fixed; top:0; left:0; right:0; height:2px;
+                       background:rgba(224,201,127,0.08); animation:scanline 3s linear infinite; }
+            @keyframes fadein { to { opacity:1 } }
+        </style></head>
+        <body>
+        <div class="scanline"></div>
+        <div class="boot" id="boot"></div>
+        <script>
+            var lines = [
+                ['ALESSIO-OS v0.1.0', 'title'],
+                ['', ''],
+                ['SYSTEM CHECK', ''],
+                ['  Memory ........... OK', 'ok'],
+                ['  SurrealDB ........ CONNECTING', ''],
+                ['  PTI Graph ........ v4.1', 'ok'],
+                ['  Delta Engine ..... REACTIVE', 'ok'],
+                ['  Paradigm ......... PTI MANIFESTO', 'ok'],
+                ['', ''],
+                ['LOADING MODULES', ''],
+                ['  dashboard/server . \\u2713', 'ok'],
+                ['  agents/orchestrator \\u2713', 'ok'],
+                ['  pti/graph ........ \\u2713', 'ok'],
+                ['  pti/registry ..... \\u2713', 'ok'],
+                ['  integrations/gh .. \\u2713', 'ok'],
+                ['  tools/ocr ........ \\u2713', 'ok'],
+                ['  tools/stt ........ \\u2713', 'ok'],
+                ['', ''],
+                ['KILLING OLD PROCESSES...', 'warn'],
+                ['SPAWNING DASHBOARD SERVER...', ''],
+                ['', ''],
+                ['  > npm run dashboard', ''],
+                ['  > PORT=\(DASHBOARD_PORT)', ''],
+                ['', ''],
+                ['WAITING FOR SERVER...', ''],
+            ];
+            var boot = document.getElementById('boot');
+            var delay = 0;
+            lines.forEach(function(l, i) {
+                delay += (l[1] === 'title' ? 200 : 60 + Math.random() * 40);
+                setTimeout(function() {
+                    var d = document.createElement('div');
+                    d.className = 'line' + (l[1] ? ' ' + l[1] : '');
+                    d.style.animationDelay = '0s';
+                    if (l[1] === 'title') {
+                        d.innerHTML = l[0];
+                        d.className = 'title line';
+                    } else {
+                        d.textContent = l[0];
+                    }
+                    boot.appendChild(d);
+                    boot.scrollTop = boot.scrollHeight;
+                }, delay);
+            });
+            // Blinking cursor at the end
+            setTimeout(function() {
+                var c = document.createElement('div');
+                c.className = 'line';
+                c.style.opacity = '1';
+                c.innerHTML = '  <span class="cursor">\\u2588</span>';
+                boot.appendChild(c);
+            }, delay + 100);
+        </script>
+        </body></html>
+        """
+        webView.loadHTMLString(bootHtml, baseURL: nil)
+
         // Kill existing node/tsx processes running the dashboard
         let kill = Process()
         kill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
@@ -191,21 +299,60 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         try? kill.run()
         kill.waitUntilExit()
 
-        // Start dashboard server again
+        // Also kill by port
+        let killPort = Process()
+        killPort.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        killPort.arguments = ["bash", "-c", "lsof -ti :\(DASHBOARD_PORT) | xargs kill -9 2>/dev/null"]
+        try? killPort.run()
+        killPort.waitUntilExit()
+
+        // Start dashboard server — use full path for npm/npx (not in app PATH)
         let projectDir = ProcessInfo.processInfo.environment["ALESSIO_OS_DIR"]
             ?? "\(NSHomeDirectory())/alessio-os"
+
         let start = Process()
-        start.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        start.arguments = ["npm", "run", "dev"]
-        start.currentDirectoryURL = URL(fileURLWithPath: projectDir)
-        start.environment = ProcessInfo.processInfo.environment
+        start.executableURL = URL(fileURLWithPath: "/bin/bash")
+        start.arguments = ["-l", "-c", "cd '\(projectDir)' && npx tsx src/index.ts --dashboard"]
+        // Inherit env but ensure PATH includes homebrew/node paths
+        var env = ProcessInfo.processInfo.environment
+        let extraPaths = "/usr/local/bin:/opt/homebrew/bin:\(NSHomeDirectory())/.nvm/versions/node/v22.12.0/bin"
+        env["PATH"] = "\(extraPaths):\(env["PATH"] ?? "/usr/bin:/bin")"
+        start.environment = env
+        start.standardOutput = FileHandle.nullDevice
+        start.standardError = FileHandle.nullDevice
         try? start.run()
 
-        // Wait a bit then reload
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.reloadDashboard()
-            print("[AlessioOS] Dashboard reloaded")
+        // Poll server until it responds, then reload
+        pollServerAndReload(attempts: 0)
+    }
+
+    private func pollServerAndReload(attempts: Int) {
+        guard attempts < 30 else {
+            print("[AlessioOS] Server failed to start after 30 attempts")
+            return
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            guard let url = URL(string: DASHBOARD_URL) else { return }
+            let task = URLSession.shared.dataTask(with: url) { data, response, error in
+                if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        self.reloadDashboard()
+                        print("[AlessioOS] Dashboard reloaded after \(attempts + 1) polls")
+                    }
+                } else {
+                    self.pollServerAndReload(attempts: attempts + 1)
+                }
+            }
+            task.resume()
+        }
+    }
+
+    @objc func setTheme(_ sender: NSMenuItem) {
+        guard let themeId = sender.representedObject as? String else { return }
+        let js = "window.applyTheme && window.applyTheme('\(themeId)'); var s = document.getElementById('theme-select'); if(s) s.value = '\(themeId)';"
+        webView.evaluateJavaScript(js, completionHandler: nil)
+        print("[AOS] theme → \(themeId)")
     }
 
     @objc func openDevTools() {
@@ -330,7 +477,14 @@ class NavigationDelegate: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // Inject dark scrollbar + native STT shim
         webView.evaluateJavaScript("""
-            document.documentElement.style.colorScheme = 'dark';
+            // Sync colorScheme with active theme (don't force dark)
+            (function() {
+                var el = document.documentElement;
+                var isDark = el.classList.contains('night');
+                el.style.colorScheme = isDark ? 'dark' : 'light dark';
+                el.style.webkitFontSmoothing = 'antialiased';
+                el.style.webkitTextSizeAdjust = '100%';
+            })();
 
             // PTI: stt.engine = 'apple-native' (sostituisce Web Speech API)
             // Salto: stt.input → [prompt.testo]

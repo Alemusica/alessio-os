@@ -19,7 +19,7 @@ var AOS = (function() {
     rytmoGap: 400,
     rytmoMappings: [
       { taps: 2, action: 'stt.toggle' },
-      { taps: 3, action: 'app.send' },
+      { taps: 3, action: 'stt.stop_send' },
     ],
   };
 
@@ -188,6 +188,18 @@ function updateProbeBar() {
   // --- STT ---
   AOS.register('stt.toggle', 'Toggle STT', function() {
     toggleMic();
+  }, 'stt');
+  AOS.register('stt.stop_send', 'Stop STT + Invia', function() {
+    // If recording, stop and send immediately after text is captured
+    if (typeof speechActive !== 'undefined' && speechActive) {
+      speechActive = false;
+      if (speechRec) speechRec.stop();
+      // Wait for onend to populate input, then send
+      setTimeout(function() { sendCommand(); }, 300);
+    } else {
+      // Not recording — just send what's in the input
+      sendCommand();
+    }
   }, 'stt');
 
   // --- View ---
@@ -366,19 +378,34 @@ function rytmoGapChange() {
 })();
 
 
-// ── NIGHT VIEW ──
-function toggleNight() {
-  document.documentElement.classList.toggle('night');
-  const on = document.documentElement.classList.contains('night');
-  store.save('alessio-os-night', on);
-  const icon = document.getElementById('night-icon');
-  if (icon) icon.innerHTML = on ? '\\u2600' : '\\u263E';
+// ── THEME SYSTEM ──
+var THEME_CLASSES = ['night', 'primavera', 'estate', 'ellenica', 'benessere'];
+
+function applyTheme(val) {
+  var theme = val || fieldVal('theme-select') || 'default';
+  var root = document.documentElement;
+  // Batch class swap in single rAF to prevent intermediate flash
+  requestAnimationFrame(function() {
+    THEME_CLASSES.forEach(function(c) { root.classList.remove(c); });
+    if (theme !== 'default') root.classList.add(theme);
+    // Sync granim immediately (same paint frame)
+    applyGranim();
+  });
+  store.save('alessio-os-theme', theme);
 }
-(function initNight() {
-  if (store.load('alessio-os-night')) {
-    document.documentElement.classList.add('night');
-    const icon = document.getElementById('night-icon');
-    if (icon) icon.innerHTML = '\\u2600';
+// Legacy: keep toggleNight for backward compat (mapped in AOS)
+function toggleNight() {
+  var cur = store.load('alessio-os-theme') || 'default';
+  applyTheme(cur === 'night' ? 'default' : 'night');
+  setField('theme-select', cur === 'night' ? 'default' : 'night');
+}
+(function initTheme() {
+  var saved = store.load('alessio-os-theme');
+  // Migrate from old night-only store
+  if (!saved && store.load('alessio-os-night')) saved = 'night';
+  if (saved && saved !== 'default') {
+    setField('theme-select', saved);
+    applyTheme(saved);
   }
 })();
 
@@ -490,17 +517,14 @@ function applyChatFont() {
 })();
 
 // ── GRANIM AMBIENT GRADIENT ──
-var GRANIM_PALETTES = {
-  warm:  [['#3A3020', '#2C2926'], ['#2C2926', '#3A3020']],
-  cool:  [['#1C2228', '#1C1A17'], ['#1C1A17', '#222830']],
-  earth: [['#1E2820', '#1C1A17'], ['#1C1A17', '#202820']],
-  rose:  [['#281E1E', '#1C1A17'], ['#1C1A17', '#281E20']],
-};
-var GRANIM_PALETTES_LIGHT = {
-  warm:  [['#F5F0EB', '#FAF8F5'], ['#FAF8F5', '#F5EDDF']],
-  cool:  [['#F0F3F7', '#FAF8F5'], ['#FAF8F5', '#EDF0F5']],
-  earth: [['#EFF5F0', '#FAF8F5'], ['#FAF8F5', '#EFF5EE']],
-  rose:  [['#F9F0F0', '#FAF8F5'], ['#FAF8F5', '#F9EEEF']],
+// Granim uses SATURATED colors — the actual tinting comes from
+// low opacity + mix-blend-mode on the canvas, not from pale colors.
+// Palette = pure hue pairs that blend via soft-light at 5-30% opacity.
+var GRANIM_PALETTES_UNIVERSAL = {
+  warm:  [['#D4A050', '#C88040'], ['#C88040', '#D4A050']],
+  cool:  [['#4080C0', '#3068A8'], ['#3068A8', '#5090D0']],
+  earth: [['#508040', '#607830'], ['#607830', '#408838']],
+  rose:  [['#C06880', '#B85070'], ['#B85070', '#D07888']],
 };
 var granimInstance = null;
 
@@ -521,9 +545,9 @@ function applyGranim() {
   }
   canvas.style.display = '';
 
-  var isNight = document.documentElement.classList.contains('night');
-  var colors = isNight ? GRANIM_PALETTES[palette] : GRANIM_PALETTES_LIGHT[palette];
-  if (!colors) colors = GRANIM_PALETTES.warm;
+  // Universal saturated colors — blend mode + opacity handle adaptation
+  var colors = GRANIM_PALETTES_UNIVERSAL[palette];
+  if (!colors) colors = GRANIM_PALETTES_UNIVERSAL.warm;
 
   if (granimInstance) { granimInstance.destroy(); granimInstance = null; }
   try {

@@ -21,7 +21,7 @@ export interface SurrealResponse {
 }
 
 // --- Escape stringa per SurrealQL ---
-function esc(val: unknown): string {
+export function esc(val: unknown): string {
   if (val === null || val === undefined) return 'NONE';
   if (typeof val === 'number') return String(val);
   if (typeof val === 'boolean') return val ? 'true' : 'false';

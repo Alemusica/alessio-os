@@ -5,7 +5,7 @@
  * Usa stesse utility di surreal-bridge.ts.
  */
 
-import { surqlQuery } from './surreal-bridge.js';
+import { surqlQuery, esc } from './surreal-bridge.js';
 import type { GrafoPTI, DeltaLogEntry } from './graph.js';
 
 // --- Sync topologia: nodi + edges ---
@@ -160,17 +160,6 @@ export async function getDeltaHistory(graphId: string, limit = 50): Promise<unkn
   return Array.isArray(result) ? result : [];
 }
 
-// --- Helpers ---
-
-function escId(s: string): string {
-  return String(s).replace(/'/g, "\\'");
-}
-
-function escJson(val: unknown): string {
-  if (val === null || val === undefined) return 'NONE';
-  try {
-    return JSON.stringify(val).replace(/'/g, "\\'");
-  } catch {
-    return 'NONE';
-  }
-}
+// escId and escJson replaced by shared esc() from surreal-bridge
+const escId = (s: string) => String(s).replace(/'/g, "\\'");
+const escJson = esc;

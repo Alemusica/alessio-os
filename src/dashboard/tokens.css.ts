@@ -58,6 +58,10 @@ export const css = `
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  /* Smooth theme transitions on all color-bearing elements */
+  *, *::before, *::after {
+    transition: background-color 0.35s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  }
 
   body {
     font-family: var(--font);
@@ -67,6 +71,7 @@ export const css = `
     font-weight: 400;
     line-height: calc(1em * var(--phi));
     height: 100vh;
+    transition: background-color 0.35s ease, color 0.35s ease;
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
     display: flex;
@@ -81,6 +86,8 @@ export const css = `
     padding: var(--gutter-v) var(--gutter-h);
     border-bottom: 1.5px solid var(--text);
     flex-shrink: 0;
+    position: relative;
+    z-index: 150;
   }
   h1 {
     font-size: var(--fs-body);
@@ -284,24 +291,85 @@ export const css = `
     50% { opacity: 0.3; }
   }
 
-  /* ── SESSIONS GRID ── */
+  /* ── SESSIONS GRID — depth surface ── */
   .sessions-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--s8), 1fr));
-    gap: var(--s3);
+    gap: var(--s4);
+    padding: var(--s3);
   }
   .session-card {
-    padding: var(--s3) 0;
-    background: none;
-    border: none;
-    border-bottom: 1px solid var(--border);
+    padding: var(--s3);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     cursor: pointer;
-    transition: color 0.15s ease;
+    position: relative;
+    overflow: hidden;
+
+    /* Realistic elevation — foglio di carta sollevato dal piano */
+    box-shadow:
+      0 0 0 0.5px rgba(0,0,0,0.03),           /* bordo ottico */
+      0 1px 3px rgba(0,0,0,0.08),              /* contact shadow */
+      0 6px 16px rgba(0,0,0,0.10),             /* ambient occlusion */
+      0 12px 40px -8px rgba(0,0,0,0.12);       /* diffuse lift */
+
+    /* Smooth tactile transitions — bezier Apple-like */
+    transition:
+      transform 0.3s cubic-bezier(0.2, 0, 0, 1),
+      box-shadow 0.3s cubic-bezier(0.2, 0, 0, 1),
+      border-color 0.25s ease;
+
+    will-change: transform, box-shadow;
   }
-  .session-card:last-child { border-bottom: none; }
+  /* Luce direzionale — sempre visibile, simula illuminazione in alto-sinistra */
+  .session-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(145deg,
+      rgba(255,255,255,0.12) 0%,
+      rgba(255,255,255,0.04) 30%,
+      transparent 60%);
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  /* Ombra interna sottile — dà volume alla card */
+  .session-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 -1px 2px rgba(0,0,0,0.04);
+    pointer-events: none;
+  }
+  /* Hover: card lifts — come alzare un foglio dal tavolo */
   .session-card:hover {
-    color: var(--accent);
+    transform: translateY(-5px) scale(1.01);
+    border-color: var(--accent-light);
+    box-shadow:
+      0 0 0 0.5px rgba(0,0,0,0.03),
+      0 2px 6px rgba(0,0,0,0.06),
+      0 12px 28px rgba(0,0,0,0.14),
+      0 24px 60px -12px rgba(0,0,0,0.16);
   }
+  .session-card:hover::before {
+    background: linear-gradient(145deg,
+      rgba(255,255,255,0.18) 0%,
+      rgba(255,255,255,0.06) 30%,
+      transparent 50%);
+  }
+  /* Press: card pushes INTO the surface — feedback tattile reale */
+  .session-card:active {
+    transform: translateY(1px) scale(0.99);
+    transition-duration: 0.1s;
+    box-shadow:
+      0 0 0 0.5px rgba(0,0,0,0.05),
+      0 1px 2px rgba(0,0,0,0.12),
+      0 3px 8px rgba(0,0,0,0.08);
+  }
+  .session-card:active::before { opacity: 0.5; }
   .session-card .sc-id {
     font-family: var(--mono);
     font-size: var(--fs-xs);
@@ -703,6 +771,77 @@ export const css = `
   .ds-modified { color: var(--amber); }
   .ds-unchanged { color: var(--dim); }
 
+  /* ── PTIG SUB-NODES (DNA biologico) ── */
+  .g-sub-node rect { rx: 0; ry: 0; }
+  .g-sub-node text { font-size: 8px; }
+
+  /* Tipo */
+  .g-sub-node.azione rect { fill: var(--amber-bg); stroke: var(--amber); }
+  .g-sub-node.organello rect { fill: var(--blue-bg); stroke: var(--blue); }
+  .g-sub-node.membrana rect { fill: var(--green-bg); stroke: var(--green); }
+  .g-sub-node.fatto rect { fill: rgba(255,255,255,0.06); stroke: var(--dim); }
+  .g-sub-node.fatto-tipo rect { fill: rgba(255,255,255,0.06); stroke: var(--dim); stroke-dasharray: 2 2; }
+
+  /* Specializzazione */
+  .g-sub-node.spec-recettore rect { fill: rgba(52,120,246,0.15); stroke: #3478f6; }
+  .g-sub-node.spec-enzima rect { fill: rgba(52,199,89,0.15); stroke: var(--green); }
+  .g-sub-node.spec-marker rect { fill: rgba(255,214,10,0.15); stroke: #e0c97f; }
+  .g-sub-node.spec-canale rect { fill: rgba(175,82,222,0.15); stroke: #af52de; }
+
+  /* Membrana (bordo) */
+  .g-sub-node.membrana-interno rect { stroke-dasharray: 3 3; }
+  .g-sub-node.membrana-superficie rect { stroke-dasharray: none; }
+  .g-sub-node.membrana-transmembrana rect { stroke-width: 2; }
+
+  /* Expanded module container */
+  .g-node.expanded rect { stroke-dasharray: 5 3; }
+
+  /* Level badges on module nodes */
+  .g-level-badge { font-size: 7px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+  .g-lv-atomo { fill: var(--dim); }
+  .g-lv-molecola { fill: var(--blue); }
+  .g-lv-cellula { fill: var(--green); }
+  .g-lv-tessuto { fill: var(--amber); }
+  .g-lv-organo { fill: var(--rose); }
+
+  /* Sub-node internal edges */
+  .g-sub-edge { stroke: var(--border); stroke-width: 0.7; opacity: 0.6; }
+  .g-sub-edge.chiama { stroke: var(--accent-light); stroke-dasharray: 2 2; }
+
+  /* PTI metrics bar */
+  .ptig-metrics {
+    display: flex; align-items: center; gap: 4px;
+    font-family: var(--mono); font-size: var(--fs-2xs);
+    margin-left: auto; padding: 2px var(--s1);
+    border: 1px solid var(--border); background: var(--surface);
+  }
+  .pm-label { color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .pm-val { color: var(--text); font-weight: 500; }
+  .pm-val.cx-bassa { color: var(--green); }
+  .pm-val.cx-media { color: var(--amber); }
+  .pm-val.cx-alta { color: var(--rose); }
+  .pm-sep { color: var(--border-strong); margin: 0 2px; }
+
+  /* Inspector DNA badges */
+  .gi-dna { border-bottom: 1px solid var(--border-strong); padding-bottom: var(--s1); margin-bottom: var(--s1); }
+  .gi-badge { display: inline-block; padding: 1px 6px; border-radius: 2px; font-size: calc(var(--fs-xs) * 1px); font-weight: 600; }
+  .gi-badge.tipo-azione { background: var(--amber-bg); color: var(--amber); }
+  .gi-badge.tipo-organello { background: var(--blue-bg); color: var(--blue); }
+  .gi-badge.tipo-membrana { background: var(--green-bg); color: var(--green); }
+  .gi-badge.tipo-fatto { background: rgba(255,255,255,0.06); color: var(--dim); }
+  .gi-badge.tipo-fatto-tipo { background: rgba(255,255,255,0.06); color: var(--dim); }
+  .gi-badge.tipo-derivato { background: var(--green-bg); color: var(--green); }
+  .gi-badge.membrana-interno { background: rgba(255,255,255,0.04); color: var(--dim); }
+  .gi-badge.membrana-superficie { background: rgba(52,199,89,0.12); color: var(--green); }
+  .gi-badge.membrana-transmembrana { background: rgba(52,120,246,0.12); color: #3478f6; }
+  .gi-badge.spec-recettore { background: rgba(52,120,246,0.15); color: #3478f6; }
+  .gi-badge.spec-enzima { background: rgba(52,199,89,0.15); color: var(--green); }
+  .gi-badge.spec-marker { background: rgba(255,214,10,0.15); color: #e0c97f; }
+  .gi-badge.spec-canale { background: rgba(175,82,222,0.15); color: #af52de; }
+  .gi-badge.cx-bassa { background: rgba(52,199,89,0.12); color: var(--green); }
+  .gi-badge.cx-media { background: rgba(255,159,10,0.12); color: var(--amber); }
+  .gi-badge.cx-alta { background: rgba(255,59,48,0.12); color: var(--rose); }
+
   /* ── TERMINAL / THINKING PANEL — Swiss, prominent ── */
   .terminal-panel {
     background: transparent;
@@ -1054,7 +1193,7 @@ export const css = `
   }
   .typo-gear:hover { color: var(--accent); }
   .typo-popover {
-    display: none; position: absolute; top: 100%; right: 0; z-index: 100;
+    display: none; position: fixed; top: 40px; right: var(--s3); z-index: 9999;
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
     padding: var(--s4); min-width: var(--s8); max-height: 80vh; overflow-y: auto;
     box-shadow: 0 4px 16px rgba(0,0,0,0.08);
@@ -1369,6 +1508,7 @@ export const css = `
   .pti-probe-bar strong { font-weight: 500; color: var(--text); }
 
   /* ── NIGHT VIEW ── */
+  /* ── THEME: Notte (Carbon Amber) ── */
   .night {
     --bg: #1C1A17;
     --surface: #242220;
@@ -1389,12 +1529,119 @@ export const css = `
     --blue: #8A9EB5;
     --blue-bg: #1C2228;
   }
+
+  /* ── THEME: Primavera (Sage & Peach) ──
+   * Hue harmony: green 145° + peach 18° (golden angle split)
+   * Accent ratio: sat peach 40% ≈ φ × sat sage 25%
+   */
+  .primavera {
+    --bg: #F7FAF5;
+    --surface: #FFFFFF;
+    --border: #D8E4D0;
+    --border-strong: #C2D4B8;
+    --text: #2A332A;
+    --text-secondary: #5E6E58;
+    --dim: #8E9E88;
+    --accent: #C8887A;
+    --accent-light: #D4A498;
+    --accent-bg: #FBF2EF;
+    --green: #6B9E6B;
+    --green-bg: #EFF5EE;
+    --amber: #C4A050;
+    --amber-bg: #FBF8ED;
+    --rose: #C87A7A;
+    --rose-bg: #FBF0EF;
+    --blue: #7A9EB5;
+    --blue-bg: #EFF4F8;
+  }
+
+  /* ── THEME: Estate (Sea & Sand) ──
+   * Hue harmony: azure 200° + sand 42° (complementary warm)
+   * Surface warmth from sand; accent coolness from sea
+   */
+  .estate {
+    --bg: #F8F6F0;
+    --surface: #FFFEFA;
+    --border: #E0D8C8;
+    --border-strong: #D0C8B4;
+    --text: #2C3038;
+    --text-secondary: #5C6670;
+    --dim: #8C96A0;
+    --accent: #3E8EA0;
+    --accent-light: #6AABB8;
+    --accent-bg: #EEF6F8;
+    --green: #5EA87A;
+    --green-bg: #EDF5F0;
+    --amber: #D4A84A;
+    --amber-bg: #FDF8EC;
+    --rose: #C08888;
+    --rose-bg: #F9F0F0;
+    --blue: #3E8EA0;
+    --blue-bg: #ECF4F7;
+  }
+
+  /* ── THEME: Ellenica (Aegean Blue) ──
+   * Hue harmony: deep blue 215° + terracotta 20° (Santorini palette)
+   * White-wash surface + cobalt accent — classic Cycladic
+   */
+  .ellenica {
+    --bg: #F5F6FA;
+    --surface: #FFFFFF;
+    --border: #D0D4E0;
+    --border-strong: #B8BDD0;
+    --text: #1E2440;
+    --text-secondary: #5A6080;
+    --dim: #8890A8;
+    --accent: #2E5E9E;
+    --accent-light: #5882B8;
+    --accent-bg: #EDF2FA;
+    --green: #5EA07A;
+    --green-bg: #EFF5F0;
+    --amber: #C4983A;
+    --amber-bg: #FBF5E8;
+    --rose: #B87060;
+    --rose-bg: #F8EFED;
+    --blue: #2E5E9E;
+    --blue-bg: #ECF0F8;
+  }
+
+  /* ── THEME: Benessere (Mineral Spa) ──
+   * Hue harmony: eucalyptus 160° + warm stone 35° (triad split)
+   * Low-saturation mineral tones — calming, balanced
+   */
+  .benessere {
+    --bg: #F5F8F6;
+    --surface: #FDFFFE;
+    --border: #D0DED6;
+    --border-strong: #B8CCC2;
+    --text: #2A3430;
+    --text-secondary: #5A6E64;
+    --dim: #8AA098;
+    --accent: #5E9E88;
+    --accent-light: #80B8A4;
+    --accent-bg: #EDF5F2;
+    --green: #5E9E70;
+    --green-bg: #EDF5EF;
+    --amber: #B8A060;
+    --amber-bg: #F8F5EC;
+    --rose: #B88888;
+    --rose-bg: #F5EFEF;
+    --blue: #6E98B5;
+    --blue-bg: #EFF4F8;
+  }
   /* ── FULL CHAT MODE (Cmd+Shift+C) ── */
   .full-chat header,
   .full-chat .sidebar,
-  .full-chat .terminal-panel,
   .full-chat .breadcrumb,
   .full-chat .chat-toolbar { display: none !important; }
+  .full-chat .terminal-panel {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    max-height: 120px; min-height: 34px; z-index: 900;
+    border-top: 1px solid var(--border);
+    background: var(--surface); opacity: 0.92;
+    font-size: 10px; overflow-y: auto;
+  }
+  .full-chat .terminal-panel.collapsed { max-height: 34px; overflow: hidden; }
   .full-chat .layout { display: flex; flex: 1; }
   .full-chat .main { flex: 1; height: 100vh; }
   .full-chat #chat-view { flex: 1; display: flex !important; flex-direction: column; }
@@ -1416,19 +1663,50 @@ export const css = `
     background: transparent; color: var(--text);
   }
 
-  /* ── GRANIM CANVAS (body-level ambient) ── */
+  /* ── GRANIM CANVAS (ambient overlay — on top, pointer-events:none) ── */
   #granim-canvas {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    z-index: 0; pointer-events: none;
+    z-index: 9000; pointer-events: none;
     opacity: var(--granim-opacity, 0.10);
+    mix-blend-mode: soft-light;
   }
-  header, .layout, .terminal-panel { position: relative; z-index: 1; }
+  .layout, .terminal-panel { position: relative; z-index: 1; }
+
+  /* ── DEPTH CARDS: Night/Dark theme shadows ── */
+  .night .session-card {
+    border-color: rgba(255,255,255,0.06);
+    box-shadow:
+      0 0 0 0.5px rgba(0,0,0,0.2),
+      0 2px 4px rgba(0,0,0,0.25),
+      0 8px 20px rgba(0,0,0,0.30),
+      0 16px 48px -8px rgba(0,0,0,0.35);
+  }
+  .night .session-card::before {
+    background: linear-gradient(145deg,
+      rgba(255,255,255,0.04) 0%,
+      rgba(196,164,120,0.03) 30%,
+      transparent 60%);
+  }
+  .night .session-card:hover {
+    border-color: rgba(196,164,120,0.2);
+    box-shadow:
+      0 0 0 0.5px rgba(0,0,0,0.2),
+      0 4px 8px rgba(0,0,0,0.25),
+      0 16px 36px rgba(0,0,0,0.40),
+      0 32px 72px -16px rgba(0,0,0,0.45);
+  }
+  .night .session-card:hover::before {
+    background: linear-gradient(145deg,
+      rgba(255,255,255,0.06) 0%,
+      rgba(196,164,120,0.04) 30%,
+      transparent 50%);
+  }
 
   .night header { border-bottom-color: var(--dim); }
   .night .file-link:hover { color: var(--accent-light); }
   .night .debug-panel { box-shadow: -2px -2px 12px rgba(0,0,0,0.3); }
   .night .debug-toggle { box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
-  .night .typo-popover { box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+  .night .typo-popover { background: #242220; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
   .night .btn-accent { color: #1C1A17; }
   .night .btn-send { color: var(--accent); }
   .night .btn-send:hover { color: var(--text); }
@@ -1520,5 +1798,69 @@ export const css = `
     font-size: var(--fs-2xs);
     color: var(--dim);
     margin-top: 2px;
+  }
+
+  /* ── THINKING STREAM (live in chat) ── */
+  .thinking-pulse {
+    animation: pulse-dim 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse-dim {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+  #thinking-stream {
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+    color: var(--dim);
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: var(--s2);
+    background: var(--accent-bg);
+    border-left: 2px solid var(--accent-light);
+    border-radius: var(--radius-sm);
+    margin-top: var(--s1);
+  }
+
+  /* ── TOOL USE BADGES (in chat) ── */
+  .msg-tool-use {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    padding: var(--s1) var(--s2);
+    margin: var(--s1) 0;
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+    color: var(--text-secondary);
+    border-left: 2px solid var(--blue);
+    background: var(--blue-bg);
+    border-radius: var(--radius-sm);
+  }
+  .tool-badge {
+    background: var(--blue);
+    color: var(--surface);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: var(--fs-2xs);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+  }
+  .tool-input {
+    color: var(--dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── ACCESSIBILITY: reduced motion ── */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 0.01s !important;
+      animation-duration: 0.01s !important;
+    }
+    .session-card:hover { transform: none; }
+    .session-card:active { transform: none; }
   }
 `;

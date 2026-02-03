@@ -13,11 +13,13 @@ import { writeFileSync, unlinkSync, mkdirSync, readFileSync } from 'fs';
 import { tmpdir, homedir } from 'os';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { resolveProjectPath, PROJECT_ROOT, PROJECT_PATHS } from '../utils/paths.js';
 import { surqlQuery } from '../pti/surreal-bridge.js';
 import { Orchestrator } from '../agents/orchestrator.js';
 import { syncTopology, attachDeltaLogger, saveSnapshot, getSnapshots, getDeltaHistory } from '../pti/graph-persistence.js';
 import { diffStrutturale, type NodoSnapshot } from '../pti/diff.js';
 import { analyzeCodebase } from '../pti/registry.js';
+import { generaPtig, type PtigFile } from '../pti/ptig-generator.js';
 import { PTI_MANIFESTO, PTI_VERSION } from '../pti/manifesto.js';
 import { listParadigms, getParadigm, createParadigm, deleteParadigm, assignParadigm, getAssignment, removeAssignment, seedDefaultParadigm } from '../pti/paradigm-registry.js';
 import { listAgentDefinitions, getAgentDefinition, createAgentDefinition, updateAgentDefinition, deleteAgentDefinition } from '../agents/agent-definitions.js';
@@ -25,7 +27,6 @@ import { resolveRepo, resolveProjectPath as ghProjectPath, getIssues, getPRs, ge
 import { logAction, onAction, getActionHistory } from '../agents/action-logger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = resolve(__dirname, '..', '..');
 const PORT = parseInt(process.env.PORT ?? '3777', 10);
 
 // --- Orchestrator singleton (started in startDashboard) ---
@@ -36,28 +37,8 @@ const OCR_BINARY = resolve(__dirname, '..', 'tools', 'ocr-vision');
 const LEVEL_MAP: Record<string, number> = { atomo: 5, molecola: 6, cellula: 7, tessuto: 8, organo: 9 };
 const topologyCache = new Map<string, { nodi: unknown[]; edges: unknown[]; ts: number }>();
 const CACHE_TTL = 30_000;
-const HOME = homedir();
-
-// Project path resolution: name → filesystem path
-const PROJECT_PATHS: Record<string, string> = {
-  'alessio-os': PROJECT_ROOT,
-  'phonon-ui': join(HOME, 'phonon-ui'),
-  'nico': join(HOME, 'nico'),
-  'rememberance': join(HOME, 'Rememberance'),
-  'innesti': join(HOME, 'innesti-revamp-draft'),
-  'dag-consulting': join(HOME, 'Documents/Web/Dag Consulting 2.0'),
-  'phi-docs': join(HOME, 'phi-docs'),
-  'natale-order-manager': join(HOME, 'natale-order-manager-main'),
-};
-
-function resolveProjectPath(projectName?: string): string {
-  if (!projectName || projectName === 'alessio-os') return PROJECT_ROOT;
-  // Exact match in registry
-  const registered = PROJECT_PATHS[projectName.toLowerCase()];
-  if (registered) return registered;
-  // Convention: ~/projectName
-  return join(HOME, projectName);
-}
+const PTIG_CACHE_TTL = 60_000;
+const ptigCache = new Map<string, { data: PtigFile; ts: number }>();
 
 function getCodebaseTopology(projectRoot?: string): { nodi: unknown[]; edges: unknown[] } {
   const root = projectRoot ?? PROJECT_ROOT;
@@ -116,10 +97,17 @@ function broadcast(event: string, data: unknown): void {
   }
 }
 
+// SSE heartbeat — prevent proxy/browser timeout disconnects
+setInterval(() => {
+  for (const client of sseClients) {
+    try { client.write(': ping\n\n'); } catch { sseClients.delete(client); }
+  }
+}, 15_000);
+
 // --- API: stato completo ---
 async function getFullState(): Promise<Record<string, unknown>> {
   const [agents, tasks, sessions, kbStats, recentChat] = await Promise.all([
-    surqlQuery('SELECT * FROM agent_state ORDER BY updated_at DESC LIMIT 20'),
+    surqlQuery("SELECT * FROM agent_state WHERE status IN ['working', 'starting'] ORDER BY updated_at DESC LIMIT 20"),
     surqlQuery('SELECT * FROM task_queue ORDER BY created_at DESC LIMIT 30'),
     surqlQuery('SELECT * FROM session_ctx ORDER BY updated_at DESC LIMIT 5'),
     surqlQuery('fn::kb_stats_v4()'),
@@ -426,7 +414,7 @@ let prevProjects = '';
 async function pollAndBroadcast(): Promise<void> {
   try {
     const [agents, tasks, , kbStats, recentChat] = await Promise.all([
-      surqlQuery('SELECT * FROM agent_state ORDER BY updated_at DESC LIMIT 20'),
+      surqlQuery("SELECT * FROM agent_state WHERE status IN ['working', 'starting'] ORDER BY updated_at DESC LIMIT 20"),
       surqlQuery('SELECT * FROM task_queue ORDER BY created_at DESC LIMIT 30'),
       surqlQuery('SELECT * FROM session_ctx ORDER BY updated_at DESC LIMIT 5'),
       surqlQuery('fn::kb_stats_v4()'),
@@ -502,6 +490,7 @@ import { ptiUtilsJs } from './pti-utils.js.js';
 import { aosJs } from './aos-rytmo.js.js';
 import { stateJs } from './state.js.js';
 import { graphJs } from './graph-view.js.js';
+import { depthLabPage } from './depth-lab.html.js';
 
 // --- HTML Dashboard (composed from tissues) ---
 function dashboardHTML(): string {
@@ -509,565 +498,170 @@ function dashboardHTML(): string {
   return dashboardPage({ css, js });
 }
 
-// --- HTTP Server ---
+// --- Route handler type ---
+type RouteHandler = (req: IncomingMessage, res: ServerResponse, query: Record<string, string>) => Promise<void>;
+
+// Wrap an async data function as a route handler with try/catch → jsonResponse
+function api(fn: (q: Record<string, string>, req: IncomingMessage) => Promise<unknown>, errStatus = 500): RouteHandler {
+  return async (req, res, query) => {
+    try { jsonResponse(res, await fn(query, req)); }
+    catch (err) { jsonResponse(res, { error: String(err) }, errStatus); }
+  };
+}
+
+// Require query param, return 400 if missing
+function requireParam(query: Record<string, string>, key: string, res: ServerResponse): string | null {
+  const val = query[key];
+  if (!val) { jsonResponse(res, { error: `Missing ${key}` }, 400); return null; }
+  return val;
+}
+
+// --- Route: SSE ---
+async function handleSSE(_req: IncomingMessage, res: ServerResponse): Promise<void> {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'Access-Control-Allow-Origin': '*' });
+  sseClients.add(res);
+  _req.on('close', () => sseClients.delete(res));
+  try { res.write(`event: state\ndata: ${JSON.stringify(await getFullState())}\n\n`); } catch { /* skip */ }
+}
+
+// --- Route: PTI topology ---
+async function handleTopology(_req: IncomingMessage, res: ServerResponse, query: Record<string, string>): Promise<void> {
+  const projectRoot = resolveProjectPath(query.project);
+  const runtimeNodi = orchestrator ? orchestrator.grafo.stato() : [];
+  const runtimeEdges: Array<{ da: string; a: string; tipo: string }> = [];
+  for (const n of runtimeNodi) {
+    for (const s of n.sorgenti) runtimeEdges.push({ da: s, a: n.id, tipo: 'dipendenza' });
+    for (const s of n.salti) runtimeEdges.push({ da: n.id, a: s, tipo: 'salto' });
+  }
+  const codebase = getCodebaseTopology(projectRoot);
+  jsonResponse(res, { nodi: [...runtimeNodi, ...codebase.nodi], edges: [...runtimeEdges, ...codebase.edges], stats: orchestrator?.grafo.stats() ?? {}, project: query.project || 'alessio-os' });
+}
+
+// --- Route: PTI trace ---
+async function handleTrace(_req: IncomingMessage, res: ServerResponse, query: Record<string, string>): Promise<void> {
+  const node = requireParam(query, 'node', res); if (!node) return;
+  if (!orchestrator) { jsonResponse(res, { error: 'No orchestrator' }, 503); return; }
+  const grafo = orchestrator.grafo;
+  const trace = grafo.trace(node), catena = grafo.catena(node), nodoBase = grafo.nodo(node);
+  jsonResponse(res, { id: node, tipo: nodoBase?.tipo, valore: nodoBase?.valore, livello: nodoBase?.livello, sorgenti: trace.sorgenti, dipendenti: trace.dipendenti, salti: trace.salti, catena, ultimoCausa: trace.ultimoCausa, accessCount: nodoBase?.accessCount });
+}
+
+// --- Route: PTI diff ---
+async function handleDiff(_req: IncomingMessage, res: ServerResponse, query: Record<string, string>): Promise<void> {
+  if (!orchestrator) { jsonResponse(res, { error: 'No orchestrator' }, 503); return; }
+  const snapshots = await getSnapshots('orchestrator', 20);
+  let before: NodoSnapshot[], after: NodoSnapshot[];
+  if (query.before) {
+    const snap = snapshots.find(s => String(s.id) === query.before);
+    if (!snap) { jsonResponse(res, { error: 'Snapshot "before" not found' }, 404); return; }
+    before = ((snap.snapshot as { nodi?: NodoSnapshot[] })?.nodi ?? []) as NodoSnapshot[];
+  } else {
+    before = snapshots.length > 0 ? ((snapshots[0].snapshot as { nodi?: NodoSnapshot[] })?.nodi ?? []) as NodoSnapshot[] : [];
+  }
+  if (query.after) {
+    const snap = snapshots.find(s => String(s.id) === query.after);
+    if (!snap) { jsonResponse(res, { error: 'Snapshot "after" not found' }, 404); return; }
+    after = ((snap.snapshot as { nodi?: NodoSnapshot[] })?.nodi ?? []) as NodoSnapshot[];
+  } else {
+    after = orchestrator.grafo.stato() as NodoSnapshot[];
+  }
+  jsonResponse(res, diffStrutturale(before, after));
+}
+
+// --- Route: PTIG cached ---
+function getPtigCached(query: Record<string, string>): PtigFile {
+  const projectRoot = resolveProjectPath(query.project);
+  const now = Date.now();
+  const cached = ptigCache.get(projectRoot);
+  if (cached && (now - cached.ts) < PTIG_CACHE_TTL) return cached.data;
+  const ptig = generaPtig(query.project || 'alessio-os', projectRoot);
+  ptigCache.set(projectRoot, { data: ptig, ts: now });
+  return ptig;
+}
+
+// --- Route: assign agent to GitHub issue ---
+async function handleAssignAgent(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readBody(req);
+  const { project, agent_def_id, issue_number, issue_title } = JSON.parse(body);
+  if (!project || !agent_def_id || !issue_number) { jsonResponse(res, { error: 'Missing project, agent_def_id, or issue_number' }, 400); return; }
+  const repo = await resolveRepo(project);
+  if (!repo) { jsonResponse(res, { error: 'No GitHub repo configured for ' + project }, 400); return; }
+  const agentDef = await getAgentDefinition(agent_def_id);
+  if (!agentDef) { jsonResponse(res, { error: 'Agent definition not found' }, 404); return; }
+  const branch = generateBranchName(issue_number, issue_title || `issue-${issue_number}`);
+  const projectPath = ghProjectPath(project);
+  try {
+    if (!branchExists(repo, branch)) createBranch(projectPath, branch);
+    else checkoutBranch(projectPath, branch);
+  } catch (err) { broadcast('log', { text: `[GitHub] Branch error: ${err}`, cls: 'error' }); }
+  const issueBody = getIssueBody(repo, issue_number);
+  await surqlQuery(`CREATE agent_issue_assignment SET agent_def_id=$agent_def_id, project=$project, issue_number=$issue_number, issue_title=$issue_title, branch_name=$branch_name, status='working', created_at=time::now()`, { agent_def_id, project, issue_number, issue_title: issue_title || '', branch_name: branch } as Record<string, unknown>);
+  const taskDescription = [`Risolvi GitHub issue #${issue_number}: ${issue_title}`, `Branch: ${branch}`, issueBody ? `\nDescrizione issue:\n${issueBody.slice(0, 2000)}` : '', `\nQuando hai finito, committa le modifiche con un messaggio che referenzia l'issue (#${issue_number}).`].join('\n');
+  if (orchestrator) { orchestrator.input(taskDescription, project); broadcast('log', { text: `[GitHub] Agent "${agentDef.name}" assigned to #${issue_number} on branch ${branch}`, cls: 'event' }); }
+  jsonResponse(res, { ok: true, branch, agent: agentDef.name });
+}
+
+// --- Route table: path → { method → handler } ---
+const ROUTE_TABLE: Record<string, Record<string, RouteHandler>> = {
+  '/depth-lab':                   { GET: async (_, res) => {
+    try {
+      const state = await getFullState();
+      const cp = (state as any).chatProjects ?? [];
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(depthLabPage(cp));
+    } catch (err) {
+      console.error('[depth-lab] ERROR:', err);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(depthLabPage([]));
+    }
+  } },
+  '/events':                     { GET: handleSSE },
+  '/api/state':                  { GET: api(async () => getFullState()) },
+  '/api/sessions':               { GET: api(async (q) => getSessions(q.project)) },
+  '/api/messages':               { GET: api(async (q) => getMessages(q.project, q.session)) },
+  '/api/ocr':                    { POST: api(async (_, req) => handleOCR(req)) },
+  '/api/transcribe':             { POST: api(async (_, req) => handleTranscribe(req)) },
+  '/api/timeline':               { GET: api(async (q) => getTimeline(parseInt(q.page ?? '0', 10))) },
+  '/api/search':                 { GET: api(async (q) => searchChats(q.q)) },
+  '/api/command':                { POST: api(async (_, req) => handleCommand(req)) },
+  '/api/restart':                { POST: async (_, res) => { jsonResponse(res, { ok: true, message: 'Riavvio in corso...' }); broadcast('log', { text: '[server] Riavvio richiesto dalla dashboard', cls: 'event' }); setTimeout(() => process.exit(0), 500); } },
+  '/api/mcp-status':             { GET: api(async () => getMcpStatus()) },
+  '/api/pti/topology':           { GET: handleTopology },
+  '/api/pti/projects':           { GET: async (_, res) => jsonResponse(res, Object.keys(PROJECT_PATHS).map(name => ({ name, path: PROJECT_PATHS[name] }))) },
+  '/api/pti/manifesto':          { GET: async (_, res) => jsonResponse(res, { version: PTI_VERSION, manifesto: PTI_MANIFESTO }) },
+  '/api/pti/trace':              { GET: handleTrace },
+  '/api/pti/delta-log':          { GET: api(async (q) => getDeltaHistory('orchestrator', parseInt(q.limit ?? '50', 10))) },
+  '/api/pti/snapshots':          { GET: api(async (q) => { const limit = parseInt(q.limit ?? '10', 10); const snaps = await getSnapshots('orchestrator', limit); return snaps.map(s => ({ id: s.id, label: s.label, created_at: s.created_at })); }) },
+  '/api/pti/diff':               { GET: handleDiff },
+  '/api/pti/snapshot':           { POST: api(async () => { if (!orchestrator) throw new Error('No orchestrator'); await saveSnapshot(orchestrator.grafo, 'orchestrator'); return { ok: true }; }) },
+  '/api/ptig':                   { GET: api(async (q) => getPtigCached(q)) },
+  '/api/ptig/nodo':              { GET: api(async (q) => { if (!q.id) throw new Error('Missing id'); const ptig = getPtigCached(q); const nodi = ptig.nodi.filter(n => n.id === q.id || n.id.startsWith(q.id + '.')); const connessioni = ptig.connessioni.filter(c => nodi.some(n => n.id === c.da) || nodi.some(n => n.id === c.a)); return { nodi, connessioni }; }) },
+  '/api/ptig/genera':            { POST: api(async (q) => { const root = resolveProjectPath(q.project); const ptig = generaPtig(q.project || 'alessio-os', root); ptigCache.set(root, { data: ptig, ts: Date.now() }); return { ok: true, stats: ptig.metriche }; }) },
+  '/api/actions':                { GET: async (req, res, q) => { const project = requireParam(q, 'project', res); if (!project) return; try { jsonResponse(res, await getActionHistory(project, { limit: parseInt(q.limit) || 50, offset: parseInt(q.offset) || 0, type: q.type })); } catch (err) { jsonResponse(res, { error: String(err) }, 500); } } },
+  '/api/github/issues':          { GET: async (_, res, q) => { const project = requireParam(q, 'project', res); if (!project) return; try { const repo = await resolveRepo(project); jsonResponse(res, repo ? getIssues(repo, q.state || 'open') : []); } catch (err) { jsonResponse(res, { error: String(err) }, 500); } } },
+  '/api/github/prs':             { GET: async (_, res, q) => { const project = requireParam(q, 'project', res); if (!project) return; try { const repo = await resolveRepo(project); jsonResponse(res, repo ? getPRs(repo, q.state || 'open') : []); } catch (err) { jsonResponse(res, { error: String(err) }, 500); } } },
+  '/api/github/discussions':     { GET: async (_, res, q) => { const project = requireParam(q, 'project', res); if (!project) return; try { const repo = await resolveRepo(project); jsonResponse(res, repo ? getDiscussions(repo) : []); } catch (err) { jsonResponse(res, { error: String(err) }, 500); } } },
+  '/api/github/config':          { GET: async (_, res, q) => { const project = requireParam(q, 'project', res); if (!project) return; try { const config = await getGithubConfig(project); const repo = await resolveRepo(project); jsonResponse(res, config ?? { repo: repo ?? '', default_branch: 'main' }); } catch (err) { jsonResponse(res, { error: String(err) }, 500); } }, POST: api(async (_, req) => { const data = JSON.parse(await readBody(req)); await setGithubConfig(data.project, data.repo, data.default_branch); return { ok: true }; }, 400) },
+  '/api/github/assign-agent':    { POST: async (req, res) => { try { await handleAssignAgent(req, res); } catch (err) { jsonResponse(res, { error: String(err) }, 500); } } },
+  '/api/github/assignments':     { GET: async (_, res, q) => { const project = requireParam(q, 'project', res); if (!project) return; try { const r = await surqlQuery(`SELECT * FROM agent_issue_assignment WHERE project = $project ORDER BY created_at DESC`, { project }); jsonResponse(res, Array.isArray(r[0]?.result) ? r[0].result : []); } catch (err) { jsonResponse(res, { error: String(err) }, 500); } } },
+  '/api/agents/definitions':     { GET: async (_, res, q) => { const project = requireParam(q, 'project', res); if (!project) return; try { jsonResponse(res, await listAgentDefinitions(project)); } catch (err) { jsonResponse(res, { error: String(err) }, 500); } }, POST: api(async (_, req) => { const data = JSON.parse(await readBody(req)); return { agent_def_id: await createAgentDefinition(data) }; }, 400), PUT: async (_, res, q) => { const id = requireParam(q, 'id', res); if (!id) return; try { const data = JSON.parse(await readBody(_)); await updateAgentDefinition(id, data); jsonResponse(res, { ok: true }); } catch (err) { jsonResponse(res, { error: String(err) }, 400); } }, DELETE: async (_, res, q) => { const id = requireParam(q, 'id', res); if (!id) return; try { await deleteAgentDefinition(id); jsonResponse(res, { ok: true }); } catch (err) { jsonResponse(res, { error: String(err) }, 400); } } },
+  '/api/paradigms':              { GET: api(async () => listParadigms()) },
+  '/api/paradigm':               { GET: async (_, res, q) => { const id = requireParam(q, 'id', res); if (!id) return; try { const p = await getParadigm(id); if (!p) { jsonResponse(res, { error: 'Not found' }, 404); return; } jsonResponse(res, p); } catch (err) { jsonResponse(res, { error: String(err) }, 500); } }, POST: api(async (_, req) => { const data = JSON.parse(await readBody(req)); return { paradigm_id: await createParadigm(data) }; }, 400), DELETE: async (_, res, q) => { const id = requireParam(q, 'id', res); if (!id) return; try { await deleteParadigm(id); jsonResponse(res, { ok: true }); } catch (err) { jsonResponse(res, { error: String(err) }, 400); } } },
+  '/api/paradigm/assign':        { POST: api(async (_, req) => { await assignParadigm(JSON.parse(await readBody(req))); return { ok: true }; }, 400) },
+  '/api/paradigm/assignment':    { GET: async (_, res, q) => { const type = requireParam(q, 'type', res); if (!type) return; const id = requireParam(q, 'id', res); if (!id) return; try { jsonResponse(res, await getAssignment(type, id) ?? { paradigm_id: null }); } catch (err) { jsonResponse(res, { error: String(err) }, 500); } }, DELETE: async (_, res, q) => { const type = requireParam(q, 'type', res); if (!type) return; const id = requireParam(q, 'id', res); if (!id) return; try { await removeAssignment(type, id); jsonResponse(res, { ok: true }); } catch (err) { jsonResponse(res, { error: String(err) }, 400); } } },
+};
+
+// --- HTTP dispatcher (cx ≈ 5, was 190) ---
 async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = req.url ?? '/';
   const path = urlPath(url);
   const query = parseQuery(url);
+  const method = req.method ?? 'GET';
 
-  // SSE
-  if (path === '/events') {
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-    });
-    sseClients.add(res);
-    req.on('close', () => sseClients.delete(res));
-    try {
-      const state = await getFullState();
-      res.write(`event: state\ndata: ${JSON.stringify(state)}\n\n`);
-    } catch { /* skip */ }
-    return;
-  }
-
-  // API: full state
-  if (path === '/api/state') {
-    try {
-      jsonResponse(res, await getFullState());
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // API: sessions
-  if (path === '/api/sessions' && query.project) {
-    try {
-      jsonResponse(res, await getSessions(query.project));
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // API: messages
-  if (path === '/api/messages' && query.project && query.session) {
-    try {
-      jsonResponse(res, await getMessages(query.project, query.session));
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // API: OCR upload
-  if (path === '/api/ocr' && req.method === 'POST') {
-    try {
-      const results = await handleOCR(req);
-      jsonResponse(res, results);
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // API: STT upload
-  if (path === '/api/transcribe' && req.method === 'POST') {
-    try {
-      const result = await handleTranscribe(req);
-      jsonResponse(res, result);
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // API: timeline
-  if (path === '/api/timeline') {
-    try {
-      const page = parseInt(query.page ?? '0', 10);
-      jsonResponse(res, await getTimeline(page));
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // API: search
-  if (path === '/api/search' && query.q) {
-    try {
-      jsonResponse(res, await searchChats(query.q));
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // API: command
-  if (path === '/api/command' && req.method === 'POST') {
-    try {
-      jsonResponse(res, await handleCommand(req));
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // API: restart server
-  if (path === '/api/restart' && req.method === 'POST') {
-    jsonResponse(res, { ok: true, message: 'Riavvio in corso...' });
-    broadcast('log', { text: '[server] Riavvio richiesto dalla dashboard', cls: 'event' });
-    setTimeout(() => process.exit(0), 500);
-    return;
-  }
-
-  // API: mcp-status
-  if (path === '/api/mcp-status') {
-    try {
-      jsonResponse(res, getMcpStatus());
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // API: PTI graph topology (unified: runtime + codebase, multi-project)
-  if (path === '/api/pti/topology') {
-    const projectRoot = resolveProjectPath(query.project);
-    const runtimeNodi = orchestrator ? orchestrator.grafo.stato() : [];
-    const runtimeEdges: Array<{ da: string; a: string; tipo: string }> = [];
-    for (const n of runtimeNodi) {
-      for (const s of n.sorgenti) runtimeEdges.push({ da: s, a: n.id, tipo: 'dipendenza' });
-      for (const s of n.salti) runtimeEdges.push({ da: n.id, a: s, tipo: 'salto' });
-    }
-    const codebase = getCodebaseTopology(projectRoot);
-    const nodi = [...runtimeNodi, ...codebase.nodi];
-    const edges = [...runtimeEdges, ...codebase.edges];
-    jsonResponse(res, { nodi, edges, stats: orchestrator?.grafo.stats() ?? {}, project: query.project || 'alessio-os' });
-    return;
-  }
-
-  // API: list available projects for PTI graph
-  if (path === '/api/pti/projects') {
-    const projects = Object.keys(PROJECT_PATHS).map(name => ({ name, path: PROJECT_PATHS[name] }));
-    jsonResponse(res, projects);
-    return;
-  }
-
-  // API: PTI manifesto (imprinting universale)
-  if (path === '/api/pti/manifesto') {
-    jsonResponse(res, { version: PTI_VERSION, manifesto: PTI_MANIFESTO });
-    return;
-  }
-
-  // API: PTI node trace
-  if (path === '/api/pti/trace' && query.node) {
-    if (!orchestrator) { jsonResponse(res, { error: 'No orchestrator' }, 503); return; }
-    const grafo = orchestrator.grafo;
-    const trace = grafo.trace(query.node);
-    const catena = grafo.catena(query.node);
-    const nodoBase = grafo.nodo(query.node);
-    jsonResponse(res, {
-      id: query.node,
-      tipo: nodoBase?.tipo,
-      valore: nodoBase?.valore,
-      livello: nodoBase?.livello,
-      sorgenti: trace.sorgenti,
-      dipendenti: trace.dipendenti,
-      salti: trace.salti,
-      catena,
-      ultimoCausa: trace.ultimoCausa,
-      accessCount: nodoBase?.accessCount,
-    });
-    return;
-  }
-
-  // API: PTI delta log (from DB)
-  if (path === '/api/pti/delta-log') {
-    try {
-      const limit = parseInt(query.limit ?? '50', 10);
-      jsonResponse(res, await getDeltaHistory('orchestrator', limit));
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // API: PTI snapshots list
-  if (path === '/api/pti/snapshots') {
-    try {
-      const limit = parseInt(query.limit ?? '10', 10);
-      const snapshots = await getSnapshots('orchestrator', limit);
-      jsonResponse(res, snapshots.map(s => ({ id: s.id, label: s.label, created_at: s.created_at })));
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // API: PTI diff between two snapshots (or snapshot vs live)
-  if (path === '/api/pti/diff') {
-    if (!orchestrator) { jsonResponse(res, { error: 'No orchestrator' }, 503); return; }
-    try {
-      const snapshots = await getSnapshots('orchestrator', 20);
-
-      let before: NodoSnapshot[];
-      let after: NodoSnapshot[];
-
-      if (query.before) {
-        const snap = snapshots.find(s => String(s.id) === query.before);
-        if (!snap) { jsonResponse(res, { error: 'Snapshot "before" not found' }, 404); return; }
-        before = ((snap.snapshot as { nodi?: NodoSnapshot[] })?.nodi ?? []) as NodoSnapshot[];
-      } else if (snapshots.length > 0) {
-        // Default: use latest snapshot as "before"
-        before = ((snapshots[0].snapshot as { nodi?: NodoSnapshot[] })?.nodi ?? []) as NodoSnapshot[];
-      } else {
-        before = [];
-      }
-
-      if (query.after) {
-        const snap = snapshots.find(s => String(s.id) === query.after);
-        if (!snap) { jsonResponse(res, { error: 'Snapshot "after" not found' }, 404); return; }
-        after = ((snap.snapshot as { nodi?: NodoSnapshot[] })?.nodi ?? []) as NodoSnapshot[];
-      } else {
-        // Default: live state
-        after = orchestrator.grafo.stato() as NodoSnapshot[];
-      }
-
-      const diff = diffStrutturale(before, after);
-      jsonResponse(res, diff);
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // API: PTI snapshot
-  if (path === '/api/pti/snapshot' && req.method === 'POST') {
-    if (!orchestrator) { jsonResponse(res, { error: 'No orchestrator' }, 503); return; }
-    try {
-      await saveSnapshot(orchestrator.grafo, 'orchestrator');
-      jsonResponse(res, { ok: true });
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // ==================== ACTION HISTORY API ====================
-
-  if (path === '/api/actions') {
-    const project = query.project as string;
-    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
-    try {
-      const limit = parseInt(query.limit as string) || 50;
-      const offset = parseInt(query.offset as string) || 0;
-      const type = query.type as string | undefined;
-      const actions = await getActionHistory(project, { limit, offset, type });
-      jsonResponse(res, actions);
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // ==================== GITHUB API ====================
-
-  if (path === '/api/github/issues') {
-    const project = query.project as string;
-    const state = (query.state as string) || 'open';
-    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
-    try {
-      const repo = await resolveRepo(project);
-      if (!repo) { jsonResponse(res, []); return; }
-      jsonResponse(res, getIssues(repo, state));
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  if (path === '/api/github/prs') {
-    const project = query.project as string;
-    const state = (query.state as string) || 'open';
-    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
-    try {
-      const repo = await resolveRepo(project);
-      if (!repo) { jsonResponse(res, []); return; }
-      jsonResponse(res, getPRs(repo, state));
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  if (path === '/api/github/discussions') {
-    const project = query.project as string;
-    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
-    try {
-      const repo = await resolveRepo(project);
-      if (!repo) { jsonResponse(res, []); return; }
-      jsonResponse(res, getDiscussions(repo));
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  if (path === '/api/github/config' && req.method === 'GET') {
-    const project = query.project as string;
-    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
-    try {
-      const config = await getGithubConfig(project);
-      const repo = await resolveRepo(project);
-      jsonResponse(res, config ?? { repo: repo ?? '', default_branch: 'main' });
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  if (path === '/api/github/config' && req.method === 'POST') {
-    try {
-      const body = await readBody(req);
-      const data = JSON.parse(body);
-      await setGithubConfig(data.project, data.repo, data.default_branch);
-      jsonResponse(res, { ok: true });
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 400);
-    }
-    return;
-  }
-
-  // ==================== AGENT → ISSUE ASSIGNMENT ====================
-
-  if (path === '/api/github/assign-agent' && req.method === 'POST') {
-    try {
-      const body = await readBody(req);
-      const { project, agent_def_id, issue_number, issue_title } = JSON.parse(body);
-      if (!project || !agent_def_id || !issue_number) {
-        jsonResponse(res, { error: 'Missing project, agent_def_id, or issue_number' }, 400);
-        return;
-      }
-
-      // 1. Resolve repo
-      const repo = await resolveRepo(project);
-      if (!repo) { jsonResponse(res, { error: 'No GitHub repo configured for ' + project }, 400); return; }
-
-      // 2. Get agent definition
-      const agentDef = await getAgentDefinition(agent_def_id);
-      if (!agentDef) { jsonResponse(res, { error: 'Agent definition not found' }, 404); return; }
-
-      // 3. Generate branch name
-      const branch = generateBranchName(issue_number, issue_title || `issue-${issue_number}`);
-
-      // 4. Create/checkout branch
-      const projectPath = ghProjectPath(project);
-      try {
-        if (!branchExists(repo, branch)) {
-          createBranch(projectPath, branch);
-        } else {
-          checkoutBranch(projectPath, branch);
-        }
-      } catch (err) {
-        broadcast('log', { text: `[GitHub] Branch error: ${err}`, cls: 'error' });
-        // Continue anyway — agent can work without branch switch
-      }
-
-      // 5. Get issue body for context
-      const issueBody = getIssueBody(repo, issue_number);
-
-      // 6. Record assignment in DB
-      await surqlQuery(`
-        CREATE agent_issue_assignment SET
-          agent_def_id = $agent_def_id,
-          project = $project,
-          issue_number = $issue_number,
-          issue_title = $issue_title,
-          branch_name = $branch_name,
-          status = 'working',
-          created_at = time::now()
-      `, {
-        agent_def_id, project, issue_number, issue_title: issue_title || '',
-        branch_name: branch,
-      } as Record<string, unknown>);
-
-      // 7. Build task description with issue context
-      const taskDescription = [
-        `Risolvi GitHub issue #${issue_number}: ${issue_title}`,
-        `Branch: ${branch}`,
-        issueBody ? `\nDescrizione issue:\n${issueBody.slice(0, 2000)}` : '',
-        `\nQuando hai finito, committa le modifiche con un messaggio che referenzia l'issue (#${issue_number}).`,
-      ].join('\n');
-
-      // 8. Dispatch via orchestrator
-      if (orchestrator) {
-        orchestrator.input(taskDescription, project);
-        broadcast('log', { text: `[GitHub] Agent "${agentDef.name}" assigned to #${issue_number} on branch ${branch}`, cls: 'event' });
-      }
-
-      jsonResponse(res, { ok: true, branch, agent: agentDef.name });
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  if (path === '/api/github/assignments') {
-    const project = query.project as string;
-    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
-    try {
-      const assignRes = await surqlQuery(
-        `SELECT * FROM agent_issue_assignment WHERE project = $project ORDER BY created_at DESC`,
-        { project }
-      );
-      const result = assignRes[0]?.result;
-      jsonResponse(res, Array.isArray(result) ? result : []);
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  // ==================== AGENT DEFINITIONS API ====================
-
-  if (path === '/api/agents/definitions' && req.method === 'GET') {
-    const project = query.project as string;
-    if (!project) { jsonResponse(res, { error: 'Missing project' }, 400); return; }
-    try {
-      const defs = await listAgentDefinitions(project);
-      jsonResponse(res, defs);
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  if (path === '/api/agents/definitions' && req.method === 'POST') {
-    try {
-      const body = await readBody(req);
-      const data = JSON.parse(body);
-      const id = await createAgentDefinition(data);
-      jsonResponse(res, { agent_def_id: id });
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 400);
-    }
-    return;
-  }
-
-  if (path === '/api/agents/definitions' && req.method === 'PUT') {
-    const id = query.id as string;
-    if (!id) { jsonResponse(res, { error: 'Missing id' }, 400); return; }
-    try {
-      const body = await readBody(req);
-      const data = JSON.parse(body);
-      await updateAgentDefinition(id, data);
-      jsonResponse(res, { ok: true });
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 400);
-    }
-    return;
-  }
-
-  if (path === '/api/agents/definitions' && req.method === 'DELETE') {
-    const id = query.id as string;
-    if (!id) { jsonResponse(res, { error: 'Missing id' }, 400); return; }
-    try {
-      await deleteAgentDefinition(id);
-      jsonResponse(res, { ok: true });
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 400);
-    }
-    return;
-  }
-
-  // ==================== PARADIGM REGISTRY API ====================
-
-  if (path === '/api/paradigms') {
-    try {
-      const paradigms = await listParadigms();
-      jsonResponse(res, paradigms);
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  if (path === '/api/paradigm' && req.method === 'GET') {
-    const id = query.id as string;
-    if (!id) { jsonResponse(res, { error: 'Missing id' }, 400); return; }
-    try {
-      const p = await getParadigm(id);
-      if (!p) { jsonResponse(res, { error: 'Not found' }, 404); return; }
-      jsonResponse(res, p);
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  if (path === '/api/paradigm' && req.method === 'POST') {
-    try {
-      const body = await readBody(req);
-      const data = JSON.parse(body);
-      const id = await createParadigm(data);
-      jsonResponse(res, { paradigm_id: id });
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 400);
-    }
-    return;
-  }
-
-  if (path === '/api/paradigm' && req.method === 'DELETE') {
-    const id = query.id as string;
-    if (!id) { jsonResponse(res, { error: 'Missing id' }, 400); return; }
-    try {
-      await deleteParadigm(id);
-      jsonResponse(res, { ok: true });
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 400);
-    }
-    return;
-  }
-
-  if (path === '/api/paradigm/assign' && req.method === 'POST') {
-    try {
-      const body = await readBody(req);
-      const data = JSON.parse(body);
-      await assignParadigm(data);
-      jsonResponse(res, { ok: true });
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 400);
-    }
-    return;
-  }
-
-  if (path === '/api/paradigm/assignment') {
-    const type = query.type as string;
-    const id = query.id as string;
-    if (!type || !id) { jsonResponse(res, { error: 'Missing type or id' }, 400); return; }
-    try {
-      const assignment = await getAssignment(type, id);
-      jsonResponse(res, assignment ?? { paradigm_id: null });
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 500);
-    }
-    return;
-  }
-
-  if (path === '/api/paradigm/assignment' && req.method === 'DELETE') {
-    const type = query.type as string;
-    const id = query.id as string;
-    if (!type || !id) { jsonResponse(res, { error: 'Missing type or id' }, 400); return; }
-    try {
-      await removeAssignment(type, id);
-      jsonResponse(res, { ok: true });
-    } catch (err) {
-      jsonResponse(res, { error: String(err) }, 400);
-    }
-    return;
+  const methods = ROUTE_TABLE[path];
+  if (methods) {
+    const handler = methods[method] ?? methods['GET'];
+    if (handler) { await handler(req, res, query); return; }
   }
 
   // Default: dashboard HTML
@@ -1083,12 +677,18 @@ export function startDashboard(): void {
     maxParallelAgents: 2,
     onLog: (text, cls) => broadcast('log', { text, cls }),
     onResponse: (text, taskId) => broadcast('response', { text, taskId }),
+    onThinking: (text, agentId) => broadcast('thinking', { text, agentId }),
+    onToolUse: (toolName, input, agentId) => broadcast('tool_use', { toolName, input, agentId }),
   });
+  // Cleanup stale agents from previous sessions
+  surqlQuery("UPDATE agent_state SET status = 'done' WHERE status IN ['working', 'starting']")
+    .then(() => console.log('[Dashboard] Stale agents cleaned up'))
+    .catch(() => {});
   // No start() needed — PTI è reattivo, niente polling
   console.log('[Dashboard] Orchestrator PTI v4 pronto (reattivo, zero polling)');
 
   // Action logger → SSE broadcast
-  onAction((entry) => broadcast('action:new', { action: entry }));
+  onAction((entry) => broadcast('action:new', entry));
 
   // Seed default PTI paradigm
   seedDefaultParadigm().catch(err =>
