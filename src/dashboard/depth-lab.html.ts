@@ -580,10 +580,15 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
       var dx = mx - bp.x;
       var dy = my - bp.y;
 
-      // Spostamento proporzionale a distanza × pull × ripple
-      // Questo crea un "foglio elastico" che si deforma verso il cursore
-      itemOffsetTarget[i].x = dx * PULL_FACTOR * ripple;
-      itemOffsetTarget[i].y = dy * PULL_FACTOR * ripple;
+      // L'item in hover NON si muove — evita flicker cursore/hitbox.
+      // Solo gli altri items si deformano come foglio elastico.
+      if (i === hovIdx) {
+        itemOffsetTarget[i].x = 0;
+        itemOffsetTarget[i].y = 0;
+      } else {
+        itemOffsetTarget[i].x = dx * PULL_FACTOR * ripple;
+        itemOffsetTarget[i].y = dy * PULL_FACTOR * ripple;
+      }
     }
     startAnimate();
   }
@@ -707,8 +712,16 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
       startAnimate();
       return;
     }
-    baseTarget.z += e.deltaY * 2;
+    var zoomAmount = e.deltaY * 2;
+    baseTarget.z += zoomAmount;
     baseTarget.x -= e.deltaX * 1.5;
+    // Smart zoom: se c'è un item in hover, tira la vista verso di lui
+    if (hoveredItem) {
+      var bp = itemBasePos[parseInt(hoveredItem.dataset.index)];
+      var pull = Math.min(0.08, Math.abs(zoomAmount) * 0.003);
+      baseTarget.x += (-bp.x - baseTarget.x) * pull;
+      baseTarget.y += (-bp.y - baseTarget.y) * pull;
+    }
     startAnimate();
   }, { passive: false });
 
