@@ -46,10 +46,14 @@ export function depthLabCameraJS(): string {
     var hovIdx = parseInt(hoveredItem.dataset.index);
     var hovBase = itemBasePos[hovIdx];
 
-    // Usa baseTarget (stabile) anziché camera (animata) per evitare
-    // feedback loop: camera muove → mx/my cambiano → target cambiano → pumping
-    var mx = mouseX - window.innerWidth / 2 - baseTarget.x;
-    var my = mouseY - window.innerHeight / 2 - baseTarget.y;
+    // PTI gerarchia: il mouse È il punto di vista, non la camera.
+    // Pull = deformazione locale aggregato, ignora il piano camera.
+    // Parallax muove il piano (livello superiore), pull deforma dentro (livello inferiore).
+    // Nessuna sottrazione camera → zero feedback → zero pumping.
+    var mx = mouseX - window.innerWidth / 2;
+    var my = mouseY - window.innerHeight / 2;
+
+    var MAX_OFFSET = 50; // cap offset per evitare movimenti esagerati
 
     for (var i = 0; i < n; i++) {
       var bp = itemBasePos[i];
@@ -68,8 +72,16 @@ export function depthLabCameraJS(): string {
         itemOffsetTarget[i].x = 0;
         itemOffsetTarget[i].y = 0;
       } else {
-        itemOffsetTarget[i].x = dx * PULL_FACTOR * ripple;
-        itemOffsetTarget[i].y = dy * PULL_FACTOR * ripple;
+        var ox = dx * PULL_FACTOR * ripple;
+        var oy = dy * PULL_FACTOR * ripple;
+        // Cap offset massimo
+        var om = Math.sqrt(ox * ox + oy * oy);
+        if (om > MAX_OFFSET) {
+          ox = ox / om * MAX_OFFSET;
+          oy = oy / om * MAX_OFFSET;
+        }
+        itemOffsetTarget[i].x = ox;
+        itemOffsetTarget[i].y = oy;
       }
     }
     startAnimate();
