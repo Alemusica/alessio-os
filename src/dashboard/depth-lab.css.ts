@@ -268,5 +268,77 @@ export function depthLabCSS(): string {
     color: var(--dim); text-decoration: none;
     letter-spacing: 0.04em; z-index: 10; transition: color 0.2s;
   }
-  .d3-back:hover { color: var(--accent); }`;
+  .d3-back:hover { color: var(--accent); }
+
+  /* ── PARAMETERS PANEL ── */
+  .d3-params {
+    position: fixed; top: 70px; right: 34px;
+    width: 260px; max-height: calc(100vh - 120px);
+    overflow-y: auto; z-index: 20;
+    background: var(--bg); border: 1px solid var(--dim);
+    border-radius: 4px; padding: 0;
+    font-family: var(--mono); font-size: 9px;
+    color: var(--text);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    display: none; opacity: 0;
+    transform: translateX(10px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  .d3-params.open {
+    display: block; opacity: 1; transform: translateX(0);
+  }
+  .d3-params-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; border-bottom: 1px solid var(--dim); opacity: 0.8;
+    font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--dim);
+  }
+  .d3-params-actions { display: flex; gap: 4px; }
+  .d3-params-actions button {
+    background: none; border: 1px solid var(--dim); color: var(--dim);
+    font-family: var(--mono); font-size: 8px; padding: 2px 6px;
+    cursor: pointer; border-radius: 2px; letter-spacing: 0.02em;
+    transition: all 0.15s;
+  }
+  .d3-params-actions button:hover {
+    color: var(--accent); border-color: var(--accent);
+  }
+  .d3-params-section { border-bottom: 1px solid var(--dim); opacity: 0.85; }
+  .d3-params-section:last-child { border-bottom: none; }
+  .d3-params-title {
+    padding: 6px 12px; cursor: pointer; color: var(--text-secondary);
+    letter-spacing: 0.04em; font-size: 9px; user-select: none;
+    transition: color 0.15s;
+  }
+  .d3-params-title:hover { color: var(--accent); }
+  .d3-params-body { padding: 0 12px 8px; }
+  .d3-param-row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 3px 0;
+  }
+  .d3-param-row label {
+    min-width: 70px; color: var(--dim); font-size: 8px;
+    letter-spacing: 0.02em;
+  }
+  .d3-param-row input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    flex: 1; height: 1px; background: var(--dim);
+    outline: none; opacity: 0.5; transition: opacity 0.15s;
+  }
+  .d3-param-row input[type="range"]:hover { opacity: 1; }
+  .d3-param-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; border: none;
+  }
+  .d3-param-val {
+    min-width: 32px; text-align: right; color: var(--text-secondary);
+    font-size: 8px; font-weight: 400;
+  }
+  .d3-params::-webkit-scrollbar { width: 3px; }
+  .d3-params::-webkit-scrollbar-track { background: transparent; }
+  .d3-params::-webkit-scrollbar-thumb { background: var(--dim); border-radius: 2px; }
+  .night .d3-params {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.20);
+  }`;
 }

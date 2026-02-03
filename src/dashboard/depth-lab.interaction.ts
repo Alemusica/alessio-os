@@ -2,12 +2,9 @@
  * Depth Lab — Tessuto: Interazione (Hover/Drag/Scroll/Keyboard/Ctx)
  *
  * PTI livello: tessuto
- * Ruolo: gestisce tutti gli input utente e li traduce in
- *        movimenti camera, cambi layout, zoom, context menu.
- * Contiene: scroll+smart zoom, drag, hover+parallax, keyboard, aperture/pull sliders,
- *           context menu, theme switching.
- * Dipende da: variabili globali IIFE (items, viewport, hoveredItem, baseTarget,
- *             hoverOffset, focalTarget, PULL_FACTOR, etc.)
+ * Ruolo: gestisce tutti gli input utente, il pannello parametri,
+ *        e l'API PTI window.depthLab per il futuro LLM interno.
+ * Dipende da: profile.* per zoomSpeed, smartZoomPull, parallaxStrength.
  */
 
 export function depthLabInteractionJS(): string {
@@ -21,17 +18,18 @@ export function depthLabInteractionJS(): string {
     e.preventDefault();
     if (e.ctrlKey) {
       fStop = Math.max(1.0, Math.min(16, fStop + e.deltaY * 0.02));
+      profile.fStop = fStop;
+      saveProfile();
       updateApertureUI();
       startAnimate();
       return;
     }
-    var zoomAmount = e.deltaY * 2;
+    var zoomAmount = e.deltaY * profile.zoomSpeed;
     baseTarget.z += zoomAmount;
     baseTarget.x -= e.deltaX * 1.5;
-    // Smart zoom: se c'è un item in hover, tira la vista verso di lui
     if (hoveredItem) {
       var bp = itemBasePos[parseInt(hoveredItem.dataset.index)];
-      var pull = Math.min(0.08, Math.abs(zoomAmount) * 0.003);
+      var pull = Math.min(0.08, Math.abs(zoomAmount) * profile.smartZoomPull);
       baseTarget.x += (-bp.x - baseTarget.x) * pull;
       baseTarget.y += (-bp.y - baseTarget.y) * pull;
     }
@@ -43,7 +41,7 @@ export function depthLabInteractionJS(): string {
   var dragStart = { x: 0, y: 0 };
 
   viewport.addEventListener('mousedown', function(e) {
-    if (e.target.closest('.d3-controls') || e.target.closest('.d3-back') || e.target.closest('.d3-aperture')) return;
+    if (e.target.closest('.d3-controls') || e.target.closest('.d3-back') || e.target.closest('.d3-aperture') || e.target.closest('.d3-params')) return;
     dragging = true;
     dragStart.x = e.clientX;
     dragStart.y = e.clientY;
@@ -77,6 +75,8 @@ export function depthLabInteractionJS(): string {
 
   slider.addEventListener('input', function() {
     fStop = parseFloat(slider.value);
+    profile.fStop = fStop;
+    saveProfile();
     updateApertureUI();
     startAnimate();
   });
@@ -93,9 +93,132 @@ export function depthLabInteractionJS(): string {
 
   pullSlider.addEventListener('input', function() {
     PULL_FACTOR = parseFloat(pullSlider.value);
+    profile.pullFactor = PULL_FACTOR;
+    saveProfile();
     updatePullUI();
     if (hoveredItem) updateAttractions();
   });
+
+  // ═══════════════════════════════════════════
+  // PARAMETERS PANEL
+  // ═══════════════════════════════════════════
+  var paramsPanel = document.getElementById('params-panel');
+  var paramsPanelOpen = false;
+
+  window.toggleParamsPanel = function() {
+    paramsPanelOpen = !paramsPanelOpen;
+    paramsPanel.classList.toggle('open', paramsPanelOpen);
+    document.getElementById('btn-params').classList.toggle('active', paramsPanelOpen);
+  };
+
+  window.toggleSection = function(el) {
+    var body = el.nextElementSibling;
+    var open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : 'block';
+    el.textContent = (open ? '▸ ' : '▾ ') + el.textContent.substring(2);
+  };
+
+  // Init sections collapsed
+  document.querySelectorAll('.d3-params-body').forEach(function(body) {
+    body.style.display = 'none';
+  });
+
+  // ── PARAM SLIDERS ──
+  function updateParamsUI() {
+    document.querySelectorAll('.d3-param-row input[data-key]').forEach(function(inp) {
+      var key = inp.dataset.key;
+      if (profile.hasOwnProperty(key)) {
+        inp.value = profile[key];
+        var val = inp.closest('.d3-param-row').querySelector('.d3-param-val');
+        if (val) val.textContent = Number(profile[key]).toFixed(inp.step && inp.step.indexOf('.') >= 0 ? (inp.step.split('.')[1] || '').length : 0);
+      }
+    });
+  }
+
+  document.querySelectorAll('.d3-param-row input[data-key]').forEach(function(inp) {
+    inp.addEventListener('input', function() {
+      var key = inp.dataset.key;
+      var v = parseFloat(inp.value);
+      profile[key] = v;
+      // Sync mutable vars
+      if (key === 'fStop') { fStop = v; updateApertureUI(); }
+      if (key === 'maxBlur') maxBlur = v;
+      if (key === 'pullFactor') { PULL_FACTOR = v; updatePullUI(); }
+      if (key === 'maxRipple') MAX_RIPPLE = v;
+      // Update display
+      var val = inp.closest('.d3-param-row').querySelector('.d3-param-val');
+      if (val) val.textContent = v.toFixed(inp.step && inp.step.indexOf('.') >= 0 ? (inp.step.split('.')[1] || '').length : 0);
+      // Re-layout for geometry params
+      var geoKeys = ['fibonacciRadius','fibonacciZDepth','clusterRadius','clusterZGap','clusterZDepth','alphaColWidth','alphaZDepth','fontScaleBase','fontScaleLog','fontMax'];
+      if (geoKeys.indexOf(key) >= 0 && layoutFns[currentLayout]) {
+        layoutFns[currentLayout]();
+      }
+      saveProfile();
+      startAnimate();
+    });
+  });
+
+  // ── EXPORT / IMPORT ──
+  window.promptExport = function() {
+    var json = JSON.stringify(profile, null, 2);
+    prompt('Profile JSON (copy):', json);
+  };
+
+  window.promptImport = function() {
+    var json = prompt('Paste profile JSON:');
+    if (json) {
+      try {
+        window.depthLab.importJSON(json);
+      } catch(e) {
+        alert('Invalid JSON');
+      }
+    }
+  };
+
+  // ═══════════════════════════════════════════
+  // API PTI — window.depthLab
+  // Espone l'intero profilo come API per il futuro LLM interno.
+  // ═══════════════════════════════════════════
+  window.depthLab = {
+    getProfile: function() { return JSON.parse(JSON.stringify(profile)); },
+    setProfile: function(partial) {
+      for (var k in partial) {
+        if (DEFAULTS.hasOwnProperty(k)) profile[k] = partial[k];
+      }
+      applyProfile();
+      saveProfile();
+    },
+    setParam: function(key, val) {
+      if (DEFAULTS.hasOwnProperty(key)) {
+        profile[key] = val;
+        applyProfile();
+        saveProfile();
+      }
+    },
+    getParam: function(key) { return profile[key]; },
+    resetDefaults: function() {
+      for (var k in DEFAULTS) profile[k] = DEFAULTS[k];
+      applyProfile();
+      saveProfile();
+    },
+    exportJSON: function() { return JSON.stringify(profile, null, 2); },
+    importJSON: function(json) {
+      var parsed = typeof json === 'string' ? JSON.parse(json) : json;
+      for (var k in DEFAULTS) {
+        if (parsed.hasOwnProperty(k)) profile[k] = parsed[k];
+      }
+      applyProfile();
+      saveProfile();
+    },
+    getDefaults: function() { return JSON.parse(JSON.stringify(DEFAULTS)); },
+    // PTI metadata
+    _pti: {
+      tipo: 'interfaccia',
+      livello: 2,
+      membrana: 'superficie',
+      parametri: Object.keys(DEFAULTS)
+    }
+  };
 
   // ── CONTEXT MENU ──
   var ctxMenu = document.getElementById('ctx-menu');
@@ -125,11 +248,11 @@ export function depthLabInteractionJS(): string {
       var z = parseFloat(item.dataset.z) || 0;
       focalTarget = z + camera.z;
 
-      // Parallax INVERTITO: scena opposta all'item → item si avvicina visivamente
       var bp = itemBasePos[parseInt(item.dataset.index)];
-      hoverOffset.x = -bp.x * 0.10;
-      hoverOffset.y = -bp.y * 0.10;
-      hoverOffset.z = -z * 0.10;
+      var ps = profile.parallaxStrength;
+      hoverOffset.x = -bp.x * ps;
+      hoverOffset.y = -bp.y * ps;
+      hoverOffset.z = -z * ps;
 
       updateAttractions();
       startAnimate();
@@ -195,15 +318,16 @@ export function depthLabInteractionJS(): string {
   // ── KEYBOARD ──
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') { hideCtx(); return; }
+    if (e.key === 'p' || e.key === 'P') { window.toggleParamsPanel(); return; }
     var step = e.shiftKey ? 300 : 100;
     if (e.key === 'ArrowUp') { baseTarget.z += step; e.preventDefault(); }
     if (e.key === 'ArrowDown') { baseTarget.z -= step; e.preventDefault(); }
     if (e.key === 'ArrowLeft') { baseTarget.x += step; e.preventDefault(); }
     if (e.key === 'ArrowRight') { baseTarget.x -= step; e.preventDefault(); }
-    if (e.key === '[') { fStop = Math.max(1.0, fStop - 0.5); updateApertureUI(); }
-    if (e.key === ']') { fStop = Math.min(16, fStop + 0.5); updateApertureUI(); }
-    if (e.key === '-') { PULL_FACTOR = Math.max(0, +(PULL_FACTOR - 0.01).toFixed(2)); updatePullUI(); }
-    if (e.key === '=' || e.key === '+') { PULL_FACTOR = Math.min(0.20, +(PULL_FACTOR + 0.01).toFixed(2)); updatePullUI(); }
+    if (e.key === '[') { fStop = Math.max(1.0, fStop - 0.5); profile.fStop = fStop; saveProfile(); updateApertureUI(); }
+    if (e.key === ']') { fStop = Math.min(16, fStop + 0.5); profile.fStop = fStop; saveProfile(); updateApertureUI(); }
+    if (e.key === '-') { PULL_FACTOR = Math.max(0, +(PULL_FACTOR - 0.01).toFixed(2)); profile.pullFactor = PULL_FACTOR; saveProfile(); updatePullUI(); }
+    if (e.key === '=' || e.key === '+') { PULL_FACTOR = Math.min(0.20, +(PULL_FACTOR + 0.01).toFixed(2)); profile.pullFactor = PULL_FACTOR; saveProfile(); updatePullUI(); }
     if (e.key === 'r') { baseTarget.x = 0; baseTarget.y = 0; baseTarget.z = 0; focalTarget = 0; }
     if (e.key === '1') window.switchLayout('fibonacci');
     if (e.key === '2') window.switchLayout('cluster');
@@ -216,5 +340,7 @@ export function depthLabInteractionJS(): string {
     var classes = ['night', 'primavera', 'estate', 'ellenica', 'benessere'];
     classes.forEach(function(c) { document.documentElement.classList.remove(c); });
     if (name !== 'default') document.documentElement.classList.add(name);
+    profile.theme = name;
+    saveProfile();
   };`;
 }

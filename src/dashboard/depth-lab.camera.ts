@@ -4,10 +4,9 @@
  * PTI livello: tessuto
  * Ruolo: gestisce la telecamera virtuale, il depth-of-field,
  *        e il loop di animazione con attrazione organica per-item.
- * Contiene: camera state, organic attraction (updateAttractions),
- *           animate loop (rAF), DoF blur calculation.
- * Dipende da: variabili globali IIFE (items, n, itemBasePos, itemOffset,
- *             itemOffsetTarget, itemSeed, hoveredItem, etc.)
+ * Dipende da: profile.* per cameraLerp, focalLerp, lerpBase, lerpNear.
+ *             Variabili mutable fStop, maxBlur, PULL_FACTOR, MAX_RIPPLE
+ *             sono sincronizzate da applyProfile().
  */
 
 export function depthLabCameraJS(): string {
@@ -17,14 +16,14 @@ export function depthLabCameraJS(): string {
   // ═══════════════════════════════════════════
 
   // ── CAMERA STATE ──
+  // fStop, maxBlur, PULL_FACTOR, MAX_RIPPLE sono dichiarati nel main IIFE
+  // e sincronizzati da applyProfile().
   var camera = { x: 0, y: 0, z: 0 };
   var target = { x: 0, y: 0, z: 0 };
   var baseTarget = { x: 0, y: 0, z: 0 };
   var hoverOffset = { x: 0, y: 0, z: 0 };
   var focalDistance = 0;
   var focalTarget = 0;
-  var fStop = 2.8;
-  var maxBlur = 12;
   var hoveredItem = null;
 
   // ── MOUSE TRACKING (per attrazione organica) ──
@@ -33,10 +32,6 @@ export function depthLabCameraJS(): string {
 
   // ═══════════════════════════════════════════
   // ORGANIC ATTRACTION — cuore del sistema
-  // Ogni item si muove indipendentemente verso il cursore,
-  // modulato dalla distanza dall'item in hover (ripple/onda).
-  // Items vicini all'hover reagiscono forte e veloce,
-  // items lontani reagiscono piano e poco — come un organismo.
   // ═══════════════════════════════════════════
   function updateAttractions() {
     if (!hoveredItem || layoutTransitioning) {
@@ -51,26 +46,22 @@ export function depthLabCameraJS(): string {
     var hovIdx = parseInt(hoveredItem.dataset.index);
     var hovBase = itemBasePos[hovIdx];
 
-    // Posizione del mouse nello spazio della scena
     var mx = mouseX - window.innerWidth / 2 - camera.x;
     var my = mouseY - window.innerHeight / 2 - camera.y;
 
     for (var i = 0; i < n; i++) {
       var bp = itemBasePos[i];
 
-      // ── RIPPLE: distanza euclidea 3D dall'item in hover ──
       var dhx = bp.x - hovBase.x;
       var dhy = bp.y - hovBase.y;
       var dhz = bp.z - hovBase.z;
       var distHov = Math.sqrt(dhx * dhx + dhy * dhy + dhz * dhz);
       var ripple = Math.max(0, 1 - distHov / MAX_RIPPLE);
-      ripple = ripple * ripple; // ease quadratico
+      ripple = ripple * ripple;
 
-      // ── ATTRAZIONE: direzione verso il cursore ──
       var dx = mx - bp.x;
       var dy = my - bp.y;
 
-      // L'item in hover NON si muove — evita flicker cursore/hitbox.
       if (i === hovIdx) {
         itemOffsetTarget[i].x = 0;
         itemOffsetTarget[i].y = 0;
@@ -94,7 +85,6 @@ export function depthLabCameraJS(): string {
   // ── ANIMATION LOOP ──
   var animating = false;
   function animate() {
-    // Camera: compone base + hover parallax
     target.x = baseTarget.x + hoverOffset.x;
     target.y = baseTarget.y + hoverOffset.y;
     target.z = baseTarget.z + hoverOffset.z;
@@ -102,13 +92,13 @@ export function depthLabCameraJS(): string {
     var dx = target.x - camera.x;
     var dy = target.y - camera.y;
     var dz = target.z - camera.z;
-    camera.x += dx * 0.08;
-    camera.y += dy * 0.08;
-    camera.z += dz * 0.08;
+    var cl = profile.cameraLerp;
+    camera.x += dx * cl;
+    camera.y += dy * cl;
+    camera.z += dz * cl;
 
-    // Interpolazione focale morbida
     var df = focalTarget - focalDistance;
-    focalDistance += df * 0.12;
+    focalDistance += df * profile.focalLerp;
 
     scene.style.transform =
       'translate3d(' + camera.x + 'px, ' + camera.y + 'px, ' + camera.z + 'px)';
@@ -120,8 +110,6 @@ export function depthLabCameraJS(): string {
       var hovBase = hovIdx >= 0 ? itemBasePos[hovIdx] : null;
 
       for (var i = 0; i < n; i++) {
-        // Velocità variabile: distanza 3D + seed per-item (temperamento)
-        // PTI: ogni cellula ha identità propria
         var lerpSpeed = 0.04;
         if (hovBase) {
           var dhx = itemBasePos[i].x - hovBase.x;
@@ -129,7 +117,7 @@ export function depthLabCameraJS(): string {
           var dhz = itemBasePos[i].z - hovBase.z;
           var d = Math.sqrt(dhx * dhx + dhy * dhy + dhz * dhz);
           var proximity = Math.max(0, 1 - d / MAX_RIPPLE);
-          lerpSpeed = (0.03 + 0.12 * proximity) * itemSeed[i];
+          lerpSpeed = (profile.lerpBase + (profile.lerpNear - profile.lerpBase) * proximity) * itemSeed[i];
         }
 
         var odx = itemOffsetTarget[i].x - itemOffset[i].x;
@@ -139,7 +127,6 @@ export function depthLabCameraJS(): string {
 
         if (Math.abs(odx) > 0.1 || Math.abs(ody) > 0.1) offsetMoving = true;
 
-        // Applica posizione combinata: base + offset organico + centering
         var bp = itemBasePos[i];
         items[i].style.transform = 'translate3d(' +
           (bp.x + itemOffset[i].x).toFixed(1) + 'px, ' +

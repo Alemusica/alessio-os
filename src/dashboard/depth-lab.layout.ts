@@ -4,10 +4,7 @@
  * PTI livello: tessuto
  * Ruolo: calcola le coordinate spaziali degli item nel volume 3D.
  * Contiene: strategy pattern per Fibonacci/Cluster/Alpha.
- * Dipende da: variabili globali IIFE (items, n, DATA, itemBasePos, PHI, GOLDEN_ANGLE).
- *
- * L'eliminazione della duplicazione avviene tramite applyLayout() condiviso:
- * ogni strategia calcola solo { x, y, z, fs, fw } per entry.
+ * Dipende da: profile.* per tutti i parametri geometrici.
  */
 
 export function depthLabLayoutJS(): string {
@@ -30,11 +27,13 @@ export function depthLabLayoutJS(): string {
   }
 
   var CLUSTER_NAMES = ['core', 'music', 'business', 'social', 'interface', 'other'];
-  var CLUSTER_Z = { core: 0, music: -400, business: -800, social: -1200, interface: -1600, other: -2000 };
+
+  function getClusterZ() {
+    var gap = profile.clusterZGap;
+    return { core: 0, music: -gap, business: -gap*2, social: -gap*3, interface: -gap*4, other: -gap*5 };
+  }
 
   // ── SHARED LAYOUT APPLICATOR ──
-  // PTI: cellula condivisa — ogni strategia produce dati, questa li applica.
-  // entries: [{ i, x, y, z, fs, fw }]
   function applyLayout(entries) {
     for (var k = 0; k < entries.length; k++) {
       var e = entries[k];
@@ -48,7 +47,7 @@ export function depthLabLayoutJS(): string {
   }
 
   // ═══════════════════════════════════════════
-  // STRATEGIA 1: FIBONACCI SPIRAL (sezione aurea)
+  // STRATEGIA 1: FIBONACCI SPIRAL
   // ═══════════════════════════════════════════
   function layoutFibonacci() {
     var sorted = DATA.map(function(d, i) { return { d: d, i: i }; })
@@ -58,13 +57,13 @@ export function depthLabLayoutJS(): string {
     for (var k = 0; k < sorted.length; k++) {
       var entry = sorted[k];
       var angle = k * GOLDEN_ANGLE;
-      var radius = 200 * Math.sqrt(k + 0.5);
+      var radius = profile.fibonacciRadius * Math.sqrt(k + 0.5);
       entries.push({
         i: entry.i,
         x: Math.cos(angle) * radius,
         y: Math.sin(angle) * radius,
-        z: -k * 20,
-        fs: Math.min(28, 12 + Math.log(1 + entry.d.count) * 2.5),
+        z: -k * profile.fibonacciZDepth,
+        fs: Math.min(profile.fontMax, profile.fontScaleBase + Math.log(1 + entry.d.count) * profile.fontScaleLog),
         fw: k < 5 ? '500' : '400'
       });
     }
@@ -72,7 +71,7 @@ export function depthLabLayoutJS(): string {
   }
 
   // ═══════════════════════════════════════════
-  // STRATEGIA 2: THEMATIC CLUSTERS (piani Z)
+  // STRATEGIA 2: THEMATIC CLUSTERS
   // ═══════════════════════════════════════════
   function layoutCluster() {
     var groups = {};
@@ -82,23 +81,24 @@ export function depthLabLayoutJS(): string {
       groups[cat].push({ d: d, i: i });
     });
 
+    var clusterZ = getClusterZ();
     var entries = [];
     CLUSTER_NAMES.forEach(function(cat) {
       var group = groups[cat];
       if (!group.length) return;
-      var baseZ = CLUSTER_Z[cat];
+      var baseZ = clusterZ[cat];
       group.sort(function(a, b) { return b.d.count - a.d.count; });
 
       for (var k = 0; k < group.length; k++) {
         var entry = group[k];
         var angle = k * GOLDEN_ANGLE;
-        var radius = 160 * Math.sqrt(k + 0.5);
+        var radius = profile.clusterRadius * Math.sqrt(k + 0.5);
         entries.push({
           i: entry.i,
           x: Math.cos(angle) * radius,
           y: Math.sin(angle) * radius,
-          z: baseZ - k * 15,
-          fs: Math.min(24, 12 + Math.log(1 + entry.d.count) * 2),
+          z: baseZ - k * profile.clusterZDepth,
+          fs: Math.min(profile.fontMax - 4, profile.fontScaleBase + Math.log(1 + entry.d.count) * (profile.fontScaleLog * 0.8)),
           fw: k === 0 ? '500' : '400'
         });
       }
@@ -114,7 +114,7 @@ export function depthLabLayoutJS(): string {
       .sort(function(a, b) { return a.d.name.localeCompare(b.d.name); });
 
     var cols = Math.round(Math.sqrt(n * PHI));
-    var cellW = 260;
+    var cellW = profile.alphaColWidth;
     var cellH = cellW / PHI;
     var totalW = cols * cellW;
     var totalH = Math.ceil(n / cols) * cellH;
@@ -128,8 +128,8 @@ export function depthLabLayoutJS(): string {
         i: entry.i,
         x: -totalW / 2 + col * cellW + cellW / 2,
         y: -totalH / 2 + row * cellH + cellH / 2,
-        z: -row * 80,
-        fs: Math.min(22, 13 + Math.log(1 + entry.d.count) * 1.5),
+        z: -row * profile.alphaZDepth,
+        fs: Math.min(profile.fontMax - 6, profile.fontScaleBase + 1 + Math.log(1 + entry.d.count) * (profile.fontScaleLog * 0.6)),
         fw: '400'
       });
     }
@@ -142,11 +142,12 @@ export function depthLabLayoutJS(): string {
 
   window.switchLayout = function(name) {
     currentLayout = name;
+    profile.layout = name;
+    saveProfile();
     document.getElementById('hud-layout').textContent = name;
     ['fibonacci', 'cluster', 'alpha'].forEach(function(l) {
       document.getElementById('btn-' + l).classList.toggle('active', l === name);
     });
-    // Transizione CSS temporanea per lo switch layout
     layoutTransitioning = true;
     for (var i = 0; i < n; i++) {
       items[i].style.transition = 'transform 1.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.6s ease, opacity 0.6s ease, font-size 0.8s ease';
@@ -158,7 +159,6 @@ export function depthLabLayoutJS(): string {
     hoverOffset.x = 0; hoverOffset.y = 0; hoverOffset.z = 0;
     focalTarget = 0;
     startAnimate();
-    // Dopo la transizione, torna a rAF puro (no CSS transition su transform)
     setTimeout(function() {
       layoutTransitioning = false;
       for (var i = 0; i < n; i++) {

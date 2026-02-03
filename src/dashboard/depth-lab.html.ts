@@ -62,6 +62,8 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   <button id="btn-fibonacci" onclick="switchLayout('fibonacci')">Fibonacci</button>
   <button id="btn-cluster" onclick="switchLayout('cluster')">Cluster</button>
   <button id="btn-alpha" class="active" onclick="switchLayout('alpha')">A — Z</button>
+  <div class="sep"></div>
+  <button id="btn-params" onclick="toggleParamsPanel()">P</button>
 </div>
 
 <div class="d3-hud" id="hud">
@@ -82,6 +84,81 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   <label>PULL</label>
   <input type="range" id="pull-slider" min="0" max="0.20" step="0.01" value="0.06">
   <span class="aperture-val" id="pull-val">0.06</span>
+</div>
+
+<!-- ── PARAMETERS PANEL ── -->
+<div class="d3-params" id="params-panel">
+  <div class="d3-params-header">
+    <span>PARAMETERS</span>
+    <div class="d3-params-actions">
+      <button onclick="window.depthLab.resetDefaults()">Reset</button>
+      <button onclick="promptExport()">Export</button>
+      <button onclick="promptImport()">Import</button>
+    </div>
+  </div>
+
+  <div class="d3-params-section">
+    <div class="d3-params-title" onclick="toggleSection(this)">▸ Camera</div>
+    <div class="d3-params-body">
+      <div class="d3-param-row"><label>fStop</label><input type="range" data-key="fStop" min="1" max="16" step="0.1"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>maxBlur</label><input type="range" data-key="maxBlur" min="1" max="20" step="0.5"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>cameraLerp</label><input type="range" data-key="cameraLerp" min="0.02" max="0.20" step="0.01"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>focalLerp</label><input type="range" data-key="focalLerp" min="0.02" max="0.30" step="0.01"><span class="d3-param-val"></span></div>
+    </div>
+  </div>
+
+  <div class="d3-params-section">
+    <div class="d3-params-title" onclick="toggleSection(this)">▸ Organic</div>
+    <div class="d3-params-body">
+      <div class="d3-param-row"><label>pullFactor</label><input type="range" data-key="pullFactor" min="0" max="0.20" step="0.005"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>maxRipple</label><input type="range" data-key="maxRipple" min="500" max="5000" step="100"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>parallaxStrength</label><input type="range" data-key="parallaxStrength" min="0" max="0.30" step="0.01"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>lerpBase</label><input type="range" data-key="lerpBase" min="0.01" max="0.10" step="0.005"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>lerpNear</label><input type="range" data-key="lerpNear" min="0.05" max="0.30" step="0.01"><span class="d3-param-val"></span></div>
+    </div>
+  </div>
+
+  <div class="d3-params-section">
+    <div class="d3-params-title" onclick="toggleSection(this)">▸ Fibonacci</div>
+    <div class="d3-params-body">
+      <div class="d3-param-row"><label>fibRadius</label><input type="range" data-key="fibonacciRadius" min="50" max="500" step="10"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>fibZDepth</label><input type="range" data-key="fibonacciZDepth" min="5" max="100" step="1"><span class="d3-param-val"></span></div>
+    </div>
+  </div>
+
+  <div class="d3-params-section">
+    <div class="d3-params-title" onclick="toggleSection(this)">▸ Cluster</div>
+    <div class="d3-params-body">
+      <div class="d3-param-row"><label>clRadius</label><input type="range" data-key="clusterRadius" min="50" max="500" step="10"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>clZGap</label><input type="range" data-key="clusterZGap" min="100" max="1000" step="50"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>clZDepth</label><input type="range" data-key="clusterZDepth" min="5" max="50" step="1"><span class="d3-param-val"></span></div>
+    </div>
+  </div>
+
+  <div class="d3-params-section">
+    <div class="d3-params-title" onclick="toggleSection(this)">▸ Alpha Grid</div>
+    <div class="d3-params-body">
+      <div class="d3-param-row"><label>colWidth</label><input type="range" data-key="alphaColWidth" min="100" max="500" step="10"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>zDepth</label><input type="range" data-key="alphaZDepth" min="20" max="200" step="5"><span class="d3-param-val"></span></div>
+    </div>
+  </div>
+
+  <div class="d3-params-section">
+    <div class="d3-params-title" onclick="toggleSection(this)">▸ Zoom</div>
+    <div class="d3-params-body">
+      <div class="d3-param-row"><label>zoomSpeed</label><input type="range" data-key="zoomSpeed" min="0.5" max="5" step="0.1"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>smartPull</label><input type="range" data-key="smartZoomPull" min="0" max="0.01" step="0.0005"><span class="d3-param-val"></span></div>
+    </div>
+  </div>
+
+  <div class="d3-params-section">
+    <div class="d3-params-title" onclick="toggleSection(this)">▸ Font</div>
+    <div class="d3-params-body">
+      <div class="d3-param-row"><label>base</label><input type="range" data-key="fontScaleBase" min="8" max="20" step="0.5"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>logScale</label><input type="range" data-key="fontScaleLog" min="0.5" max="5" step="0.1"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>max</label><input type="range" data-key="fontMax" min="16" max="48" step="1"><span class="d3-param-val"></span></div>
+    </div>
+  </div>
 </div>
 
 <div class="d3-ctx" id="ctx-menu">
@@ -112,9 +189,97 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   var PHI = (1 + Math.sqrt(5)) / 2;
   var GOLDEN_ANGLE = 2.399963;
 
-  // ── ORGANIC CONSTANTS ──
-  var PULL_FACTOR = 0.06;
-  var MAX_RIPPLE = 2500;
+  // ═══════════════════════════════════════════
+  // PROFILO UTENTE PERSISTENTE
+  // Ogni parametro visivo/interattivo è salvabile, ricaricabile,
+  // e esposto come API PTI per il futuro LLM interno.
+  // ═══════════════════════════════════════════
+  var DEFAULTS = {
+    // Camera
+    fStop: 2.8,
+    maxBlur: 12,
+    cameraLerp: 0.08,
+    focalLerp: 0.12,
+    // Organic
+    pullFactor: 0.06,
+    maxRipple: 2500,
+    parallaxStrength: 0.10,
+    lerpBase: 0.03,
+    lerpNear: 0.15,
+    // Fibonacci
+    fibonacciRadius: 200,
+    fibonacciZDepth: 20,
+    // Cluster
+    clusterRadius: 160,
+    clusterZGap: 400,
+    clusterZDepth: 15,
+    // Alpha Grid
+    alphaColWidth: 260,
+    alphaZDepth: 80,
+    // Zoom
+    zoomSpeed: 2,
+    smartZoomPull: 0.003,
+    // Font
+    fontScaleBase: 12,
+    fontScaleLog: 2.5,
+    fontMax: 28,
+    // Layout + Theme (metadata)
+    layout: 'alpha',
+    theme: 'default'
+  };
+
+  var profile = {};
+  for (var k in DEFAULTS) profile[k] = DEFAULTS[k];
+
+  // ── MUTABLE VARS (synced from profile by applyProfile) ──
+  var fStop = profile.fStop;
+  var maxBlur = profile.maxBlur;
+  var PULL_FACTOR = profile.pullFactor;
+  var MAX_RIPPLE = profile.maxRipple;
+
+  // ── PERSISTENCE ──
+  var _saveTimer = null;
+  function saveProfile() {
+    if (_saveTimer) clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(function() {
+      try { localStorage.setItem('depth-lab-profile', JSON.stringify(profile)); } catch(e) {}
+    }, 500);
+  }
+
+  function loadProfile() {
+    try {
+      var saved = localStorage.getItem('depth-lab-profile');
+      if (saved) {
+        var parsed = JSON.parse(saved);
+        for (var k in DEFAULTS) {
+          if (parsed.hasOwnProperty(k)) profile[k] = parsed[k];
+        }
+      }
+    } catch(e) {}
+  }
+
+  function applyProfile() {
+    // Sync mutable vars
+    fStop = profile.fStop;
+    maxBlur = profile.maxBlur;
+    PULL_FACTOR = profile.pullFactor;
+    MAX_RIPPLE = profile.maxRipple;
+    // Re-layout + update UI
+    if (typeof layoutFns !== 'undefined' && layoutFns[currentLayout]) {
+      layoutFns[currentLayout]();
+    }
+    if (typeof updateApertureUI === 'function') updateApertureUI();
+    if (typeof updatePullUI === 'function') updatePullUI();
+    if (typeof updateParamsUI === 'function') updateParamsUI();
+    startAnimate();
+  }
+
+  // Load saved profile at boot
+  loadProfile();
+  fStop = profile.fStop;
+  maxBlur = profile.maxBlur;
+  PULL_FACTOR = profile.pullFactor;
+  MAX_RIPPLE = profile.maxRipple;
 
   // ── PER-ITEM ORGANIC STATE ──
   var itemBasePos = [];
@@ -139,10 +304,15 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   ${depthLabInteractionJS()}
 
   // ── INIT ──
-  layoutAlpha();
+  var savedLayout = profile.layout || 'alpha';
+  if (profile.theme && profile.theme !== 'default') {
+    window.setTheme(profile.theme);
+  }
+  window.switchLayout(savedLayout);
   updateApertureUI();
   updatePullUI();
   updateDoF();
+  updateParamsUI();
 })();
 </script>
 </body>
