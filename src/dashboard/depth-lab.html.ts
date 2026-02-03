@@ -58,7 +58,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   .d3-viewport {
     width: 100vw;
     height: 100vh;
-    perspective: 800px;
+    perspective: 1400px;
     perspective-origin: 50% 45%;
     overflow: hidden;
     position: relative;
@@ -368,7 +368,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
 
   // ── GOLDEN RATIO ──
   var PHI = (1 + Math.sqrt(5)) / 2;       // 1.618...
-  var GOLDEN_ANGLE = Math.PI * 2 / (PHI * PHI); // ~137.5° in radians
+  var GOLDEN_ANGLE = 2.399963; // 137.508° — the exact golden angle in radians
 
   // ── THEMATIC CLUSTERS ──
   // Auto-classify by name patterns
@@ -399,12 +399,12 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
 
       // Fibonacci phyllotaxis: angle = rank * golden_angle, radius = c * sqrt(rank)
       var angle = rank * GOLDEN_ANGLE;
-      var radius = 120 * Math.sqrt(rank);
+      var radius = 200 * Math.sqrt(rank + 0.5); // +0.5 avoids center stacking
 
       var x = Math.cos(angle) * radius;
       var y = Math.sin(angle) * radius;
-      // Z: top items at front, less active recede
-      var z = -rank * 40;
+      // Z: gentle depth — not too aggressive to avoid perspective compression
+      var z = -rank * 20;
 
       // Font size: logarithmic scale based on activity
       var fs = 12 + Math.log(1 + d.count) * 2.5;
@@ -442,7 +442,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
         var el = items[entry.i];
         var d = entry.d;
         var angle = rank * GOLDEN_ANGLE;
-        var radius = 80 * Math.sqrt(rank + 0.5);
+        var radius = 160 * Math.sqrt(rank + 0.5);
         var x = Math.cos(angle) * radius;
         var y = Math.sin(angle) * radius;
         var z = baseZ - rank * 15; // slight depth within cluster
@@ -669,8 +669,13 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
       // Move focal plane to the item's Z (relative to camera)
       focalTarget = z + camera.z;
       // Subtle parallax: scene shifts 10% toward item
-      var ix = parseFloat(item.style.transform.match(/translate3d\(([^,]+)/)?.[1]) || 0;
-      var iy = parseFloat(item.style.transform.match(/,\s*([^,]+)/)?.[1]) || 0;
+      // Parse transform values without regex (template literal safe)
+      var tf = item.style.transform || '';
+      var p1 = tf.indexOf('(');
+      var p2 = tf.indexOf(')');
+      var parts = (p1 > -1 && p2 > p1) ? tf.substring(p1 + 1, p2).split(',') : [];
+      var ix = parseFloat(parts[0]) || 0;
+      var iy = parseFloat(parts[1]) || 0;
       hoverOffset.x = ix * 0.10;
       hoverOffset.y = iy * 0.10;
       hoverOffset.z = -z * 0.10;
