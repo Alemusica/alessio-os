@@ -46,8 +46,10 @@ export function depthLabCameraJS(): string {
     var hovIdx = parseInt(hoveredItem.dataset.index);
     var hovBase = itemBasePos[hovIdx];
 
-    var mx = mouseX - window.innerWidth / 2 - camera.x;
-    var my = mouseY - window.innerHeight / 2 - camera.y;
+    // Usa baseTarget (stabile) anziché camera (animata) per evitare
+    // feedback loop: camera muove → mx/my cambiano → target cambiano → pumping
+    var mx = mouseX - window.innerWidth / 2 - baseTarget.x;
+    var my = mouseY - window.innerHeight / 2 - baseTarget.y;
 
     for (var i = 0; i < n; i++) {
       var bp = itemBasePos[i];
