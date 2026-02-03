@@ -242,8 +242,17 @@ export function depthLabInteractionJS(): string {
   }
 
   // ── PER-ITEM HOVER + CLICK + CONTEXT MENU ──
+  // Anti-pumping: il parallax muove la scena → item esce dal cursore →
+  // mouseleave → parallax torna → item rientra → mouseenter → LOOP.
+  // Fix: debounce mouseleave 150ms. Se mouseenter ri-scatta sullo stesso
+  // item (rimbalzo parallax), il timer viene annullato → zero oscillazione.
+  var _hoverLeaveTimer = null;
+
   items.forEach(function(item) {
     item.addEventListener('mouseenter', function() {
+      // Annulla eventuale timer di un-hover (rimbalzo parallax)
+      if (_hoverLeaveTimer) { clearTimeout(_hoverLeaveTimer); _hoverLeaveTimer = null; }
+
       hoveredItem = item;
       var z = parseFloat(item.dataset.z) || 0;
       focalTarget = z + camera.z;
@@ -259,14 +268,21 @@ export function depthLabInteractionJS(): string {
     });
 
     item.addEventListener('mouseleave', function() {
-      if (hoveredItem === item) {
-        hoveredItem = null;
-        hoverOffset.x = 0;
-        hoverOffset.y = 0;
-        hoverOffset.z = 0;
-        updateAttractions();
-        startAnimate();
-      }
+      if (hoveredItem !== item) return;
+      // Debounce: aspetta 150ms prima di un-hover.
+      // Se mouseenter ri-scatta (rimbalzo parallax), timer annullato.
+      if (_hoverLeaveTimer) clearTimeout(_hoverLeaveTimer);
+      _hoverLeaveTimer = setTimeout(function() {
+        _hoverLeaveTimer = null;
+        if (hoveredItem === item) {
+          hoveredItem = null;
+          hoverOffset.x = 0;
+          hoverOffset.y = 0;
+          hoverOffset.z = 0;
+          updateAttractions();
+          startAnimate();
+        }
+      }, 150);
     });
 
     item.addEventListener('contextmenu', function(e) {
