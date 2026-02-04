@@ -4,9 +4,17 @@
  * PTI livello: tessuto
  * Ruolo: gestisce la telecamera virtuale, il depth-of-field,
  *        il loop di animazione, e l'attrazione elastica per-item.
- * Dipende da: profile.* per cameraLerp, focalLerp, lerpBase, lerpNear.
+ * Dipende da: profile.* per cameraLerp, focalLerp, lerpBase, lerpNear,
+ *             parallaxStrength.
  *             Variabili mutable fStop, maxBlur, PULL_FACTOR, MAX_RIPPLE,
  *             HIT_RADIUS, MAX_OFFSET sono sincronizzate da applyProfile().
+ *
+ * Hit-test: proiezione prospettica manuale (stessa formula di CSS perspective).
+ *   Il mouse vive in 2D sullo schermo. Gli item vivono nel volume 3D.
+ *   Per ogni mousemove, proiettiamo ogni itemBasePos sullo schermo,
+ *   troviamo il più vicino al mouse, e de-proiettiamo il mouse nel piano Z
+ *   dell'item per calcolare il vettore attrazione.
+ *   Usa baseTarget (non camera) → immune al parallax → zero feedback loop.
  */
 
 export function depthLabCameraJS(): string {
@@ -21,55 +29,90 @@ export function depthLabCameraJS(): string {
   var camera = { x: 0, y: 0, z: 0 };
   var target = { x: 0, y: 0, z: 0 };
   var baseTarget = { x: 0, y: 0, z: 0 };
+  var hoverOffset = { x: 0, y: 0, z: 0 };
   var focalDistance = 0;
   var focalTarget = 0;
   var hoveredItem = null;
+
+  // ── PERSPECTIVE CONSTANTS ──
+  // Matches CSS: perspective: 1400px, perspective-origin: 50% 45%
+  var PD = 1400;
 
   // ── MOUSE TRACKING ──
   var mouseX = window.innerWidth / 2;
   var mouseY = window.innerHeight / 2;
 
   // ═══════════════════════════════════════════
-  // ELASTIC LATTICE — mouse come attrattore
-  // Hit-testing su itemBasePos (statiche), immune a offset e camera.
-  // L'item hoverato si muove verso il mouse, i vicini seguono.
+  // ELASTIC LATTICE — Aura 2D (hit-test) + Ripple 3D (propagazione)
+  //
+  // Fase 1: proietta ogni item sullo schermo, calcola aura con priorità Z
+  //         (front items vincono quando sovrapposti).
+  // Fase 2: hoveredItem = max aura → CSS .attracted + focalTarget.
+  // Fase 3: hovered item si attrae verso mouse (aura piena).
+  //         Vicini seguono via ripple 3D (distanza dall'hoverato).
+  //         Items lontani in 3D non reagiscono → zero caos.
+  //
+  // Usa baseTarget (non camera) → immune al parallax.
   // ═══════════════════════════════════════════
-  function updateAttractions() {
-    // Converti mouse in coordinate scena (sottrarre centro viewport + camera)
-    var sceneX = mouseX - window.innerWidth / 2 - camera.x;
-    var sceneY = mouseY - window.innerHeight / 2 - camera.y;
+  var itemAura = [];
+  for (var _a = 0; _a < n; _a++) itemAura.push(0);
 
-    // Hit-test: trova item più vicino al mouse usando posizioni BASE
-    var closestIdx = -1;
-    var closestDist = HIT_RADIUS;
+  function updateAttractions() {
+    var originX = window.innerWidth / 2;
+    var originY = window.innerHeight * 0.45;
+
+    // ── FASE 1: proietta + aura con priorità Z ──
+    var maxAura = 0;
+    var maxAuraIdx = -1;
     for (var i = 0; i < n; i++) {
       var bp = itemBasePos[i];
-      var dx = sceneX - bp.x;
-      var dy = sceneY - bp.y;
+      var relZ = bp.z + baseTarget.z;
+      if (relZ >= PD) { itemAura[i] = 0; continue; }
+      var scale = PD / (PD - relZ);
+      var screenX = originX + (bp.x + baseTarget.x) * scale;
+      var screenY = originY + (bp.y + baseTarget.y) * scale;
+      var dx = mouseX - screenX;
+      var dy = mouseY - screenY;
       var d = Math.sqrt(dx * dx + dy * dy);
-      if (d < closestDist) {
-        closestDist = d;
-        closestIdx = i;
-      }
+      // Aura: raggio scalato per prospettiva, falloff quadratico
+      var auraRadius = HIT_RADIUS * 3.0 * scale;
+      var aura = Math.max(0, 1 - d / auraRadius);
+      aura = aura * aura;
+      // Priorità Z: front items (scale > 1) vincono su back items (scale < 1)
+      aura = aura * scale;
+      itemAura[i] = aura;
+      if (aura > maxAura) { maxAura = aura; maxAuraIdx = i; }
     }
 
-    // Aggiorna hoveredItem + classe CSS
+    // ── FASE 2: hoveredItem = max aura ──
     var prevHovered = hoveredItem;
-    if (closestIdx >= 0) {
-      hoveredItem = items[closestIdx];
+    if (maxAuraIdx >= 0 && maxAura > 0.01) {
+      hoveredItem = items[maxAuraIdx];
       if (hoveredItem !== prevHovered) {
         if (prevHovered) prevHovered.classList.remove('attracted');
         hoveredItem.classList.add('attracted');
-        var z = parseFloat(hoveredItem.dataset.z) || 0;
-        focalTarget = z + camera.z;
       }
+      // Focal target: aggiornare SEMPRE (non solo al cambio)
+      var hovZ = parseFloat(hoveredItem.dataset.z) || 0;
+      focalTarget = hovZ + baseTarget.z;
     } else {
       if (prevHovered) prevHovered.classList.remove('attracted');
       hoveredItem = null;
+      maxAuraIdx = -1;
     }
 
-    // Calcola offset: rete elastica con mouse come attrattore
-    if (closestIdx < 0 || layoutTransitioning) {
+    // ── PARALLAX: hoverOffset → camera verso l'item hoverato ──
+    if (maxAuraIdx >= 0) {
+      var hovBp = itemBasePos[maxAuraIdx];
+      hoverOffset.x = -hovBp.x * profile.parallaxStrength;
+      hoverOffset.y = -hovBp.y * profile.parallaxStrength;
+    } else {
+      hoverOffset.x = 0;
+      hoverOffset.y = 0;
+    }
+
+    // ── FASE 3: attrazione ibrida — aura per hovered, ripple 3D per vicini ──
+    if (maxAuraIdx < 0 || layoutTransitioning) {
       for (var i = 0; i < n; i++) {
         itemOffsetTarget[i].x = 0;
         itemOffsetTarget[i].y = 0;
@@ -78,31 +121,44 @@ export function depthLabCameraJS(): string {
       return;
     }
 
-    var hovBase = itemBasePos[closestIdx];
+    var hovBase = itemBasePos[maxAuraIdx];
 
     for (var i = 0; i < n; i++) {
       var bp = itemBasePos[i];
 
-      // Vettore da QUESTO item verso il mouse
-      var toMouseX = sceneX - bp.x;
-      var toMouseY = sceneY - bp.y;
+      // De-proietta mouse nel piano Z di QUESTO item
+      var thisRelZ = bp.z + baseTarget.z;
+      var thisScale = (thisRelZ >= PD) ? 1 : PD / (PD - thisRelZ);
+      var sceneMouseX = (mouseX - originX) / thisScale - baseTarget.x;
+      var sceneMouseY = (mouseY - originY) / thisScale - baseTarget.y;
 
-      // Distanza da questo item all'item hoverato (accoppiamento elastico)
-      var dhx = bp.x - hovBase.x;
-      var dhy = bp.y - hovBase.y;
-      var dhz = bp.z - hovBase.z;
-      var distToHovered = Math.sqrt(dhx * dhx + dhy * dhy + dhz * dhz);
+      // Vettore da QUESTO item verso la proiezione del mouse nel suo piano Z
+      var toMouseX = sceneMouseX - bp.x;
+      var toMouseY = sceneMouseY - bp.y;
 
-      // Ripple: falloff quadratico dall'item hoverato
-      var ripple = Math.max(0, 1 - distToHovered / MAX_RIPPLE);
-      ripple = ripple * ripple;
+      // Intensità: l'hoverato usa aura piena, gli altri usano ripple 3D
+      var intensity;
+      if (i === maxAuraIdx) {
+        intensity = 1.0;
+      } else {
+        // Ripple: falloff quadratico dalla distanza 3D all'hoverato
+        var dhx = bp.x - hovBase.x;
+        var dhy = bp.y - hovBase.y;
+        var dhz = bp.z - hovBase.z;
+        var distToHovered = Math.sqrt(dhx * dhx + dhy * dhy + dhz * dhz);
+        intensity = Math.max(0, 1 - distToHovered / MAX_RIPPLE);
+        intensity = intensity * intensity;
+      }
 
-      // L'item hoverato ha attrazione massima
-      if (i === closestIdx) ripple = 1.0;
+      if (intensity < 0.001) {
+        itemOffsetTarget[i].x = 0;
+        itemOffsetTarget[i].y = 0;
+        continue;
+      }
 
-      // Offset = tira verso il mouse, scalato per ripple
-      var ox = toMouseX * PULL_FACTOR * ripple;
-      var oy = toMouseY * PULL_FACTOR * ripple;
+      // Offset = tira verso il mouse, scalato per intensità
+      var ox = toMouseX * PULL_FACTOR * intensity;
+      var oy = toMouseY * PULL_FACTOR * intensity;
 
       // Cap offset
       var om = Math.sqrt(ox * ox + oy * oy);
@@ -130,10 +186,10 @@ export function depthLabCameraJS(): string {
   // ── ANIMATION LOOP ──
   var animating = false;
   function animate() {
-    // Camera: target = solo baseTarget (niente parallax)
-    target.x = baseTarget.x;
-    target.y = baseTarget.y;
-    target.z = baseTarget.z;
+    // Camera: target = baseTarget + hoverOffset (parallax)
+    target.x = baseTarget.x + hoverOffset.x;
+    target.y = baseTarget.y + hoverOffset.y;
+    target.z = baseTarget.z + hoverOffset.z;
 
     var dx = target.x - camera.x;
     var dy = target.y - camera.y;
@@ -156,13 +212,14 @@ export function depthLabCameraJS(): string {
       var hovBase = hovIdx >= 0 ? itemBasePos[hovIdx] : null;
 
       for (var i = 0; i < n; i++) {
-        var lerpSpeed = 0.04;
+        // lerpSpeed: più vicino all'hoverato in 3D → più rapido
+        var lerpSpeed = profile.lerpBase * itemSeed[i];
         if (hovBase) {
           var dhx = itemBasePos[i].x - hovBase.x;
           var dhy = itemBasePos[i].y - hovBase.y;
           var dhz = itemBasePos[i].z - hovBase.z;
-          var d = Math.sqrt(dhx * dhx + dhy * dhy + dhz * dhz);
-          var proximity = Math.max(0, 1 - d / MAX_RIPPLE);
+          var d3 = Math.sqrt(dhx * dhx + dhy * dhy + dhz * dhz);
+          var proximity = Math.max(0, 1 - d3 / MAX_RIPPLE);
           lerpSpeed = (profile.lerpBase + (profile.lerpNear - profile.lerpBase) * proximity) * itemSeed[i];
         }
 

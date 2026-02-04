@@ -116,6 +116,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
       <div class="d3-param-row"><label>maxOffset</label><input type="range" data-key="maxOffset" min="20" max="200" step="5"><span class="d3-param-val"></span></div>
       <div class="d3-param-row"><label>lerpBase</label><input type="range" data-key="lerpBase" min="0.01" max="0.10" step="0.005"><span class="d3-param-val"></span></div>
       <div class="d3-param-row"><label>lerpNear</label><input type="range" data-key="lerpNear" min="0.05" max="0.30" step="0.01"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>parallax</label><input type="range" data-key="parallaxStrength" min="0" max="0.20" step="0.005"><span class="d3-param-val"></span></div>
     </div>
   </div>
 
@@ -208,6 +209,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     maxOffset: 80,
     lerpBase: 0.04,
     lerpNear: 0.20,
+    parallaxStrength: 0.08,
     // Fibonacci
     fibonacciRadius: 200,
     fibonacciZDepth: 20,
