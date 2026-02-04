@@ -156,7 +156,6 @@ export function depthLabLayoutJS(): string {
     }
     layoutFns[name]();
     baseTarget.x = 0; baseTarget.y = 0; baseTarget.z = 0;
-    hoverOffset.x = 0; hoverOffset.y = 0; hoverOffset.z = 0;
     focalTarget = 0;
     startAnimate();
     setTimeout(function() {

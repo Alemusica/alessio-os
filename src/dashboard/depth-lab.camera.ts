@@ -3,10 +3,10 @@
  *
  * PTI livello: tessuto
  * Ruolo: gestisce la telecamera virtuale, il depth-of-field,
- *        e il loop di animazione con attrazione organica per-item.
+ *        il loop di animazione, e l'attrazione elastica per-item.
  * Dipende da: profile.* per cameraLerp, focalLerp, lerpBase, lerpNear.
- *             Variabili mutable fStop, maxBlur, PULL_FACTOR, MAX_RIPPLE
- *             sono sincronizzate da applyProfile().
+ *             Variabili mutable fStop, maxBlur, PULL_FACTOR, MAX_RIPPLE,
+ *             HIT_RADIUS, MAX_OFFSET sono sincronizzate da applyProfile().
  */
 
 export function depthLabCameraJS(): string {
@@ -16,25 +16,60 @@ export function depthLabCameraJS(): string {
   // ═══════════════════════════════════════════
 
   // ── CAMERA STATE ──
-  // fStop, maxBlur, PULL_FACTOR, MAX_RIPPLE sono dichiarati nel main IIFE
-  // e sincronizzati da applyProfile().
+  // fStop, maxBlur, PULL_FACTOR, MAX_RIPPLE, HIT_RADIUS, MAX_OFFSET
+  // sono dichiarati nel main IIFE e sincronizzati da applyProfile().
   var camera = { x: 0, y: 0, z: 0 };
   var target = { x: 0, y: 0, z: 0 };
   var baseTarget = { x: 0, y: 0, z: 0 };
-  var hoverOffset = { x: 0, y: 0, z: 0 };
   var focalDistance = 0;
   var focalTarget = 0;
   var hoveredItem = null;
 
-  // ── MOUSE TRACKING (per attrazione organica) ──
+  // ── MOUSE TRACKING ──
   var mouseX = window.innerWidth / 2;
   var mouseY = window.innerHeight / 2;
 
   // ═══════════════════════════════════════════
-  // ORGANIC ATTRACTION — cuore del sistema
+  // ELASTIC LATTICE — mouse come attrattore
+  // Hit-testing su itemBasePos (statiche), immune a offset e camera.
+  // L'item hoverato si muove verso il mouse, i vicini seguono.
   // ═══════════════════════════════════════════
   function updateAttractions() {
-    if (!hoveredItem || layoutTransitioning) {
+    // Converti mouse in coordinate scena (sottrarre centro viewport + camera)
+    var sceneX = mouseX - window.innerWidth / 2 - camera.x;
+    var sceneY = mouseY - window.innerHeight / 2 - camera.y;
+
+    // Hit-test: trova item più vicino al mouse usando posizioni BASE
+    var closestIdx = -1;
+    var closestDist = HIT_RADIUS;
+    for (var i = 0; i < n; i++) {
+      var bp = itemBasePos[i];
+      var dx = sceneX - bp.x;
+      var dy = sceneY - bp.y;
+      var d = Math.sqrt(dx * dx + dy * dy);
+      if (d < closestDist) {
+        closestDist = d;
+        closestIdx = i;
+      }
+    }
+
+    // Aggiorna hoveredItem + classe CSS
+    var prevHovered = hoveredItem;
+    if (closestIdx >= 0) {
+      hoveredItem = items[closestIdx];
+      if (hoveredItem !== prevHovered) {
+        if (prevHovered) prevHovered.classList.remove('attracted');
+        hoveredItem.classList.add('attracted');
+        var z = parseFloat(hoveredItem.dataset.z) || 0;
+        focalTarget = z + camera.z;
+      }
+    } else {
+      if (prevHovered) prevHovered.classList.remove('attracted');
+      hoveredItem = null;
+    }
+
+    // Calcola offset: rete elastica con mouse come attrattore
+    if (closestIdx < 0 || layoutTransitioning) {
       for (var i = 0; i < n; i++) {
         itemOffsetTarget[i].x = 0;
         itemOffsetTarget[i].y = 0;
@@ -43,55 +78,51 @@ export function depthLabCameraJS(): string {
       return;
     }
 
-    var hovIdx = parseInt(hoveredItem.dataset.index);
-    var hovBase = itemBasePos[hovIdx];
-
-    // PTI gerarchia: il mouse È il punto di vista, non la camera.
-    // Pull = deformazione locale aggregato, ignora il piano camera.
-    // Parallax muove il piano (livello superiore), pull deforma dentro (livello inferiore).
-    // Nessuna sottrazione camera → zero feedback → zero pumping.
-    var mx = mouseX - window.innerWidth / 2;
-    var my = mouseY - window.innerHeight / 2;
-
-    var MAX_OFFSET = 50; // cap offset per evitare movimenti esagerati
+    var hovBase = itemBasePos[closestIdx];
 
     for (var i = 0; i < n; i++) {
       var bp = itemBasePos[i];
 
+      // Vettore da QUESTO item verso il mouse
+      var toMouseX = sceneX - bp.x;
+      var toMouseY = sceneY - bp.y;
+
+      // Distanza da questo item all'item hoverato (accoppiamento elastico)
       var dhx = bp.x - hovBase.x;
       var dhy = bp.y - hovBase.y;
       var dhz = bp.z - hovBase.z;
-      var distHov = Math.sqrt(dhx * dhx + dhy * dhy + dhz * dhz);
-      var ripple = Math.max(0, 1 - distHov / MAX_RIPPLE);
+      var distToHovered = Math.sqrt(dhx * dhx + dhy * dhy + dhz * dhz);
+
+      // Ripple: falloff quadratico dall'item hoverato
+      var ripple = Math.max(0, 1 - distToHovered / MAX_RIPPLE);
       ripple = ripple * ripple;
 
-      var dx = mx - bp.x;
-      var dy = my - bp.y;
+      // L'item hoverato ha attrazione massima
+      if (i === closestIdx) ripple = 1.0;
 
-      if (i === hovIdx) {
-        itemOffsetTarget[i].x = 0;
-        itemOffsetTarget[i].y = 0;
-      } else {
-        var ox = dx * PULL_FACTOR * ripple;
-        var oy = dy * PULL_FACTOR * ripple;
-        // Cap offset massimo
-        var om = Math.sqrt(ox * ox + oy * oy);
-        if (om > MAX_OFFSET) {
-          ox = ox / om * MAX_OFFSET;
-          oy = oy / om * MAX_OFFSET;
-        }
-        itemOffsetTarget[i].x = ox;
-        itemOffsetTarget[i].y = oy;
+      // Offset = tira verso il mouse, scalato per ripple
+      var ox = toMouseX * PULL_FACTOR * ripple;
+      var oy = toMouseY * PULL_FACTOR * ripple;
+
+      // Cap offset
+      var om = Math.sqrt(ox * ox + oy * oy);
+      if (om > MAX_OFFSET) {
+        ox = ox / om * MAX_OFFSET;
+        oy = oy / om * MAX_OFFSET;
       }
+
+      itemOffsetTarget[i].x = ox;
+      itemOffsetTarget[i].y = oy;
     }
     startAnimate();
   }
 
-  // ── GLOBAL MOUSE TRACKING ──
+  // ── GLOBAL MOUSE TRACKING + HIT-TEST ──
+  // Sempre attivo: hit-test su ogni mousemove, non dipende da DOM events.
   window.addEventListener('mousemove', function(e) {
     mouseX = e.clientX;
     mouseY = e.clientY;
-    if (hoveredItem && !layoutTransitioning) {
+    if (!layoutTransitioning) {
       updateAttractions();
     }
   });
@@ -99,9 +130,10 @@ export function depthLabCameraJS(): string {
   // ── ANIMATION LOOP ──
   var animating = false;
   function animate() {
-    target.x = baseTarget.x + hoverOffset.x;
-    target.y = baseTarget.y + hoverOffset.y;
-    target.z = baseTarget.z + hoverOffset.z;
+    // Camera: target = solo baseTarget (niente parallax)
+    target.x = baseTarget.x;
+    target.y = baseTarget.y;
+    target.z = baseTarget.z;
 
     var dx = target.x - camera.x;
     var dy = target.y - camera.y;

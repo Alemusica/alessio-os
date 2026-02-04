@@ -84,8 +84,10 @@ export function depthLabCSS(): string {
     display: block;
   }
 
-  .d3-item:hover .d3-name { color: var(--accent); }
-  .d3-item:hover .d3-meta { color: var(--text-secondary); }
+  .d3-item:hover .d3-name,
+  .d3-item.attracted .d3-name { color: var(--accent); }
+  .d3-item:hover .d3-meta,
+  .d3-item.attracted .d3-meta { color: var(--text-secondary); }
 
   .d3-item.in-focus .d3-name { font-weight: 500; }
   .d3-item.in-focus .d3-meta { color: var(--text-secondary); }

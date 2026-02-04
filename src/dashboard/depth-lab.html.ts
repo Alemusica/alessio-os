@@ -112,7 +112,8 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     <div class="d3-params-body">
       <div class="d3-param-row"><label>pullFactor</label><input type="range" data-key="pullFactor" min="0" max="0.20" step="0.005"><span class="d3-param-val"></span></div>
       <div class="d3-param-row"><label>maxRipple</label><input type="range" data-key="maxRipple" min="500" max="5000" step="100"><span class="d3-param-val"></span></div>
-      <div class="d3-param-row"><label>parallaxStrength</label><input type="range" data-key="parallaxStrength" min="0" max="0.30" step="0.01"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>hitRadius</label><input type="range" data-key="hitRadius" min="20" max="200" step="5"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>maxOffset</label><input type="range" data-key="maxOffset" min="20" max="200" step="5"><span class="d3-param-val"></span></div>
       <div class="d3-param-row"><label>lerpBase</label><input type="range" data-key="lerpBase" min="0.01" max="0.10" step="0.005"><span class="d3-param-val"></span></div>
       <div class="d3-param-row"><label>lerpNear</label><input type="range" data-key="lerpNear" min="0.05" max="0.30" step="0.01"><span class="d3-param-val"></span></div>
     </div>
@@ -201,11 +202,12 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     cameraLerp: 0.08,
     focalLerp: 0.12,
     // Organic
-    pullFactor: 0.06,
-    maxRipple: 2500,
-    parallaxStrength: 0.10,
-    lerpBase: 0.03,
-    lerpNear: 0.15,
+    pullFactor: 0.12,
+    maxRipple: 1500,
+    hitRadius: 60,
+    maxOffset: 80,
+    lerpBase: 0.04,
+    lerpNear: 0.20,
     // Fibonacci
     fibonacciRadius: 200,
     fibonacciZDepth: 20,
@@ -236,6 +238,8 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   var maxBlur = profile.maxBlur;
   var PULL_FACTOR = profile.pullFactor;
   var MAX_RIPPLE = profile.maxRipple;
+  var HIT_RADIUS = profile.hitRadius;
+  var MAX_OFFSET = profile.maxOffset;
 
   // ── PERSISTENCE ──
   var _saveTimer = null;
@@ -264,6 +268,8 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     maxBlur = profile.maxBlur;
     PULL_FACTOR = profile.pullFactor;
     MAX_RIPPLE = profile.maxRipple;
+    HIT_RADIUS = profile.hitRadius;
+    MAX_OFFSET = profile.maxOffset;
     // Re-layout + update UI
     if (typeof layoutFns !== 'undefined' && layoutFns[currentLayout]) {
       layoutFns[currentLayout]();
@@ -280,6 +286,8 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   maxBlur = profile.maxBlur;
   PULL_FACTOR = profile.pullFactor;
   MAX_RIPPLE = profile.maxRipple;
+  HIT_RADIUS = profile.hitRadius;
+  MAX_OFFSET = profile.maxOffset;
 
   // ── PER-ITEM ORGANIC STATE ──
   var itemBasePos = [];
