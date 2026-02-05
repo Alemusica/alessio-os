@@ -12,6 +12,8 @@ import Cocoa
 import WebKit
 import Speech
 import AVFoundation
+import CoreAudio
+import AudioToolbox
 
 // ==================== CONFIG ====================
 
@@ -162,6 +164,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         actionsMenu.addItem(NSMenuItem(title: "PTI Probe", action: #selector(aosAction(_:)), keyEquivalent: ""))
         actionsMenu.items.last?.representedObject = "design.probe" as NSString
+        // Audio submenu
+        let audioSubmenu = NSMenu(title: "Audio")
+        audioSubmenu.addItem(NSMenuItem(title: "Audio Status…", action: #selector(showAudioStatus), keyEquivalent: ""))
+        audioSubmenu.addItem(NSMenuItem(title: "Test Microphone (2s)…", action: #selector(testMicrophone), keyEquivalent: ""))
+        audioSubmenu.addItem(NSMenuItem.separator())
+        audioSubmenu.addItem(NSMenuItem(title: "Restart CoreAudio", action: #selector(restartCoreAudio), keyEquivalent: ""))
+        audioSubmenu.addItem(NSMenuItem(title: "Open Sound Settings", action: #selector(openSoundSettings), keyEquivalent: ""))
+        let audioMenuItem = NSMenuItem(title: "Audio", action: nil, keyEquivalent: "")
+        audioMenuItem.submenu = audioSubmenu
+        actionsMenu.addItem(audioMenuItem)
         actionsMenu.addItem(NSMenuItem.separator())
         actionsMenu.addItem(NSMenuItem(title: "Toggle Terminal", action: #selector(aosAction(_:)), keyEquivalent: "t"))
         actionsMenu.items.last?.representedObject = "terminal.toggle" as NSString
@@ -370,6 +382,221 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         webView.evaluateJavaScript(js, completionHandler: nil)
         print("[AOS] \(action)")
     }
+
+    // ==================== AUDIO DIAGNOSTICS ====================
+
+    @objc func showAudioStatus() {
+        var info = ""
+
+        // Default input device via CoreAudio HAL
+        var deviceID = AudioDeviceID(0)
+        var propSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let st = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &addr, 0, nil, &propSize, &deviceID
+        )
+
+        if st == noErr && deviceID != 0 {
+            // Device name
+            var nameRef: CFString = "" as CFString
+            var nameSize = UInt32(MemoryLayout<CFString>.size)
+            var nameAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceNameCFString,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectGetPropertyData(deviceID, &nameAddr, 0, nil, &nameSize, &nameRef)
+
+            // Sample rate
+            var sampleRate: Float64 = 0
+            var srSize = UInt32(MemoryLayout<Float64>.size)
+            var srAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyNominalSampleRate,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectGetPropertyData(deviceID, &srAddr, 0, nil, &srSize, &sampleRate)
+
+            // Input channels — use AVAudioEngine for simpler access
+            let engine = AVAudioEngine()
+            let fmt = engine.inputNode.outputFormat(forBus: 0)
+
+            info += "Input Device: \(nameRef)\n"
+            info += "Device ID: \(deviceID)\n"
+            info += "Sample Rate: \(Int(sampleRate)) Hz\n"
+            info += "Engine Format: \(Int(fmt.sampleRate)) Hz, \(fmt.channelCount) ch\n"
+        } else {
+            info += "⚠ No input device detected\n"
+            info += "Status: \(st), Device ID: \(deviceID)\n"
+        }
+
+        // List all input devices
+        var devicesAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var devSize: UInt32 = 0
+        AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &devicesAddr, 0, nil, &devSize)
+        let deviceCount = Int(devSize) / MemoryLayout<AudioDeviceID>.size
+        var devices = [AudioDeviceID](repeating: 0, count: deviceCount)
+        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &devicesAddr, 0, nil, &devSize, &devices)
+
+        var inputDevices: [String] = []
+        for dev in devices {
+            var streamAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyStreams,
+                mScope: kAudioObjectPropertyScopeInput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            var streamSize: UInt32 = 0
+            AudioObjectGetPropertyDataSize(dev, &streamAddr, 0, nil, &streamSize)
+            if streamSize > 0 {
+                var dn: CFString = "" as CFString
+                var dns = UInt32(MemoryLayout<CFString>.size)
+                var dnAddr = AudioObjectPropertyAddress(
+                    mSelector: kAudioDevicePropertyDeviceNameCFString,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+                AudioObjectGetPropertyData(dev, &dnAddr, 0, nil, &dns, &dn)
+                let marker = dev == deviceID ? " ◀ active" : ""
+                inputDevices.append("  • \(dn) (id:\(dev))\(marker)")
+            }
+        }
+
+        if !inputDevices.isEmpty {
+            info += "\nInput Devices:\n" + inputDevices.joined(separator: "\n")
+        } else {
+            info += "\n⚠ No input devices found"
+        }
+
+        // Speech recognizer
+        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "it-IT"))
+        info += "\n\nSpeech (it-IT): \(recognizer?.isAvailable == true ? "available" : "⚠ unavailable")"
+
+        // STT engine state
+        info += "\nSTT Engine: listening=\(nativeSTT.isListening), starting=\(nativeSTT.isStarting)"
+
+        let alert = NSAlert()
+        alert.messageText = "Audio Status"
+        alert.informativeText = info
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Open Sound Settings")
+        alert.addButton(withTitle: "Restart CoreAudio")
+
+        let response = alert.runModal()
+        if response == .alertSecondButtonReturn {
+            openSoundSettings()
+        } else if response == .alertThirdButtonReturn {
+            restartCoreAudio()
+        }
+    }
+
+    @objc func testMicrophone() {
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+
+        guard format.sampleRate > 0 else {
+            let alert = NSAlert()
+            alert.messageText = "Mic Test Failed"
+            alert.informativeText = "No audio input (sampleRate = 0).\n\nCheck System Settings > Sound > Input."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Open Sound Settings")
+            if alert.runModal() == .alertSecondButtonReturn { openSoundSettings() }
+            return
+        }
+
+        var peakLevel: Float = 0
+        var sampleCount: Int = 0
+
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+            guard let data = buffer.floatChannelData else { return }
+            let count = Int(buffer.frameLength)
+            for i in 0..<count {
+                let level = abs(data[0][i])
+                if level > peakLevel { peakLevel = level }
+            }
+            sampleCount += count
+        }
+
+        engine.prepare()
+        do {
+            try engine.start()
+            print("[Audio] Mic test started — recording 2s at \(Int(format.sampleRate))Hz")
+        } catch {
+            inputNode.removeTap(onBus: 0)
+            let alert = NSAlert()
+            alert.messageText = "Mic Test Failed"
+            alert.informativeText = "Audio engine error: \(error.localizedDescription)"
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            engine.stop()
+            inputNode.removeTap(onBus: 0)
+
+            let db = peakLevel > 0 ? 20 * log10(peakLevel) : -100
+            let working = peakLevel > 0.001
+
+            let alert = NSAlert()
+            alert.messageText = working ? "Microphone OK" : "No Audio Detected"
+            alert.informativeText = """
+            Peak: \(String(format: "%.1f", db)) dB
+            Samples: \(sampleCount)
+            Format: \(Int(format.sampleRate)) Hz, \(format.channelCount) ch
+            Status: \(working ? "✅ Audio input working" : "❌ No signal — check audio device")
+            """
+            alert.alertStyle = working ? .informational : .warning
+            alert.addButton(withTitle: "OK")
+            if !working {
+                alert.addButton(withTitle: "Open Sound Settings")
+            }
+            let response = alert.runModal()
+            if response == .alertSecondButtonReturn {
+                self?.openSoundSettings()
+            }
+        }
+    }
+
+    @objc func openSoundSettings() {
+        // macOS 13+ System Settings URL
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc func restartCoreAudio() {
+        let script = "do shell script \"killall coreaudiod\" with administrator privileges"
+        var error: NSDictionary?
+        if let appleScript = NSAppleScript(source: script) {
+            appleScript.executeAndReturnError(&error)
+            if let error = error {
+                print("[Audio] CoreAudio restart error: \(error)")
+                let alert = NSAlert()
+                alert.messageText = "CoreAudio Restart Failed"
+                alert.informativeText = "\(error[NSAppleScript.errorMessage] ?? "Unknown error")"
+                alert.alertStyle = .warning
+                alert.runModal()
+            } else {
+                print("[Audio] CoreAudio daemon restarted")
+                let alert = NSAlert()
+                alert.messageText = "CoreAudio Restarted"
+                alert.informativeText = "The audio daemon has been restarted.\nWait 2–3 seconds, then try the microphone."
+                alert.runModal()
+            }
+        }
+    }
 }
 
 // ==================== SEARCH BAR ====================
@@ -558,7 +785,13 @@ class NavigationDelegate: NSObject, WKNavigationDelegate {
                     if (typeof addLog === 'function') addLog('STT errore nativo: ' + err, 'error');
                 };
             })();
-        """, completionHandler: nil)
+        """) { _, error in
+            if let error = error {
+                print("[AlessioOS] STT shim injection error: \(error.localizedDescription)")
+            } else {
+                print("[AlessioOS] STT shim injected OK")
+            }
+        }
     }
 }
 
@@ -573,6 +806,8 @@ class NativeSTT {
     var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     var recognitionTask: SFSpeechRecognitionTask?
     var isListening = false
+    var isStarting = false
+    var accumulatedText: String = ""  // Full accumulated transcription
 
     init(webView: WKWebView) {
         self.webView = webView
@@ -580,8 +815,8 @@ class NativeSTT {
     }
 
     func toggle() {
-        print("[NativeSTT] toggle() isListening=\(isListening)")
-        if isListening {
+        print("[NativeSTT] toggle() isListening=\(isListening) isStarting=\(isStarting)")
+        if isListening || isStarting {
             stop()
         } else {
             start()
@@ -590,17 +825,24 @@ class NativeSTT {
 
     func start() {
         print("[NativeSTT] start() called")
+        guard !isStarting else {
+            print("[NativeSTT] already starting, ignoring")
+            return
+        }
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
             print("[NativeSTT] ERROR: recognizer unavailable")
             jsCallback("onSTTError", data: "'speech_unavailable'")
             return
         }
+        isStarting = true
         print("[NativeSTT] recognizer available, requesting authorization...")
 
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
             print("[NativeSTT] authorization status: \(status.rawValue)")
             DispatchQueue.main.async {
                 guard let self = self else { return }
+                guard self.isStarting else { return } // User cancelled during auth
+                self.isStarting = false
                 switch status {
                 case .authorized:
                     print("[NativeSTT] authorized — begin recording")
@@ -618,29 +860,64 @@ class NativeSTT {
         recognitionTask?.cancel()
         recognitionTask = nil
 
+        // Always remove existing tap before installing new one (prevents crash)
+        audioEngine.inputNode.removeTap(onBus: 0)
+
+        // Reset accumulated text for new recording session
+        accumulatedText = ""
+
+        // Auto-detect: if default input is virtual (Realphones, BlackHole, etc.),
+        // switch to MacBook Pro Microphone or first physical mic
+        setInputDeviceToPhysicalMic()
+
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        // On-device when available (macOS 13+)
+
+        // Prefer on-device recognition (no network dependency, lower latency)
         if #available(macOS 13, *) {
-            request.requiresOnDeviceRecognition = false
+            if speechRecognizer?.supportsOnDeviceRecognition == true {
+                request.requiresOnDeviceRecognition = true
+                print("[NativeSTT] Using ON-DEVICE recognition (it-IT)")
+            } else {
+                request.requiresOnDeviceRecognition = false
+                print("[NativeSTT] On-device NOT available — using server")
+            }
         }
 
         recognitionRequest = request
 
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
+
+        // Validate audio format (sampleRate 0 = no audio input device)
+        guard recordingFormat.sampleRate > 0 else {
+            print("[NativeSTT] ERROR: no audio input (sampleRate=0)")
+            jsCallback("onSTTError", data: "'no_audio_input'")
+            return
+        }
+
+        print("[NativeSTT] Audio format: \(Int(recordingFormat.sampleRate))Hz, \(recordingFormat.channelCount)ch")
+
+        var bufferCount = 0
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
             request.append(buffer)
+            bufferCount += 1
+            if bufferCount == 1 {
+                print("[NativeSTT] First audio buffer received (\(buffer.frameLength) frames)")
+            } else if bufferCount % 100 == 0 {
+                print("[NativeSTT] Buffer #\(bufferCount)")
+            }
         }
 
         audioEngine.prepare()
         do {
             try audioEngine.start()
             isListening = true
-            print("[NativeSTT] audio engine started — listening")
+            print("[NativeSTT] Audio engine started — listening")
             jsCallback("onSTTStart", data: "null")
         } catch {
             print("[NativeSTT] audio engine error: \(error)")
+            audioEngine.inputNode.removeTap(onBus: 0)
             jsCallback("onSTTError", data: "'\(error.localizedDescription)'")
             return
         }
@@ -650,7 +927,13 @@ class NativeSTT {
             DispatchQueue.main.async {
                 if let result = result {
                     let text = result.bestTranscription.formattedString
-                    let escaped = text.replacingOccurrences(of: "'", with: "\\'")
+                    // Accumulate FULL text (SFSpeechRecognizer already gives us cumulative result)
+                    self.accumulatedText = text
+                    print("[NativeSTT] Result: '\(text)' isFinal=\(result.isFinal)")
+                    // Escape backslash FIRST, then quotes
+                    let escaped = text
+                        .replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "'", with: "\\'")
                         .replacingOccurrences(of: "\n", with: "\\n")
                     let isFinal = result.isFinal
                     self.jsCallback("onSTTResult", data: "{ text: '\(escaped)', isFinal: \(isFinal) }")
@@ -659,21 +942,172 @@ class NativeSTT {
                         self.stop()
                     }
                 }
-                if error != nil && self.isListening {
-                    self.stop()
+                if let error = error {
+                    print("[NativeSTT] Recognition error: \(error.localizedDescription) (listening=\(self.isListening))")
+                    if self.isListening {
+                        self.jsCallback("onSTTError", data: "'\(error.localizedDescription)'")
+                        self.stop()
+                    }
                 }
             }
         }
+
+        if recognitionTask == nil {
+            print("[NativeSTT] ⚠ recognitionTask is NIL — recognizer may be unavailable")
+            jsCallback("onSTTError", data: "'recognition_task_nil'")
+            stop()
+        } else {
+            print("[NativeSTT] Recognition task created OK")
+        }
+    }
+
+    // ── AUTO-DETECT PHYSICAL MICROPHONE ──
+    // If default input is a virtual audio device (Realphones, BlackHole, etc.),
+    // switch the audio engine to MacBook Pro Microphone or first physical mic.
+    private func setInputDeviceToPhysicalMic() {
+        var defaultID = AudioDeviceID(0)
+        var propSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &addr, 0, nil, &propSize, &defaultID
+        )
+
+        let defaultName = getAudioDeviceName(defaultID)
+        let lower = defaultName.lowercased()
+
+        let virtualKeywords = ["realphones", "blackhole", "soundflower", "loopback",
+                               "merging ravenna", "aggregate", "microsoft teams"]
+        let isVirtual = virtualKeywords.contains(where: { lower.contains($0) })
+
+        if !isVirtual {
+            print("[NativeSTT] Default input: \(defaultName) — physical device, OK")
+            return
+        }
+
+        print("[NativeSTT] ⚠ Default input '\(defaultName)' is VIRTUAL — searching for physical mic...")
+
+        guard let physicalMicID = findPhysicalMic(excluding: defaultID) else {
+            print("[NativeSTT] ⚠ No physical mic found — using default anyway")
+            return
+        }
+
+        // Set the physical mic on the audio engine's input node audio unit
+        guard let au = audioEngine.inputNode.audioUnit else {
+            print("[NativeSTT] ⚠ No audio unit on input node")
+            return
+        }
+
+        var devID = physicalMicID
+        let status = AudioUnitSetProperty(
+            au,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &devID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+
+        let micName = getAudioDeviceName(physicalMicID)
+        if status == noErr {
+            print("[NativeSTT] ✓ Switched input to: \(micName) (id:\(physicalMicID))")
+        } else {
+            print("[NativeSTT] ⚠ Failed to set input device (OSStatus: \(status))")
+        }
+    }
+
+    private func getAudioDeviceName(_ deviceID: AudioDeviceID) -> String {
+        var nameRef: CFString = "" as CFString
+        var nameSize = UInt32(MemoryLayout<CFString>.size)
+        var nameAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceNameCFString,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectGetPropertyData(deviceID, &nameAddr, 0, nil, &nameSize, &nameRef)
+        return nameRef as String
+    }
+
+    private func findPhysicalMic(excluding: AudioDeviceID) -> AudioDeviceID? {
+        var devicesAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var devSize: UInt32 = 0
+        AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject),
+            &devicesAddr, 0, nil, &devSize
+        )
+        let count = Int(devSize) / MemoryLayout<AudioDeviceID>.size
+        var devices = [AudioDeviceID](repeating: 0, count: count)
+        AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &devicesAddr, 0, nil, &devSize, &devices
+        )
+
+        let virtualKeywords = ["realphones", "blackhole", "soundflower", "loopback",
+                               "merging ravenna", "aggregate", "microsoft teams"]
+        var fallback: AudioDeviceID? = nil
+
+        for dev in devices {
+            guard dev != excluding else { continue }
+            // Check device has input streams
+            var streamAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyStreams,
+                mScope: kAudioObjectPropertyScopeInput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            var streamSize: UInt32 = 0
+            AudioObjectGetPropertyDataSize(dev, &streamAddr, 0, nil, &streamSize)
+            guard streamSize > 0 else { continue }
+
+            let name = getAudioDeviceName(dev).lowercased()
+            if virtualKeywords.contains(where: { name.contains($0) }) { continue }
+
+            // Prefer built-in mic
+            if name.contains("macbook") || name.contains("built-in") || name.contains("internal") {
+                return dev
+            }
+            if fallback == nil { fallback = dev }
+        }
+        return fallback
     }
 
     func stop() {
-        print("[NativeSTT] stop()")
-        audioEngine.stop()
+        print("[NativeSTT] stop() isListening=\(isListening)")
+        let wasListening = isListening
+        isListening = false
+        isStarting = false
+
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
         audioEngine.inputNode.removeTap(onBus: 0)
+
+        // If user manually stopped (not auto-stopped by isFinal), force send accumulated result
+        if wasListening && !accumulatedText.isEmpty {
+            print("[NativeSTT] Manual stop — forcing final result: '\(accumulatedText)'")
+            let escaped = accumulatedText
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+                .replacingOccurrences(of: "\n", with: "\\n")
+            jsCallback("onSTTResult", data: "{ text: '\(escaped)', isFinal: true }")
+        }
+
+        // Signal end of audio
         recognitionRequest?.endAudio()
         recognitionRequest = nil
+
+        // Clean up recognition task
+        recognitionTask?.cancel()
         recognitionTask = nil
-        isListening = false
+        accumulatedText = ""
+
         jsCallback("onSTTStop", data: "null")
     }
 

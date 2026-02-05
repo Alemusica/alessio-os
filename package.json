@@ -10,7 +10,7 @@
     "auto-save": "tsx src/hooks/auto-save.ts",
     "auto-save:week": "tsx src/hooks/auto-save.ts 7",
     "registry": "tsx src/pti/registry.ts",
-    "app:build": "mkdir -p build/AlessioOS.app/Contents/MacOS && cp app/AlessioOS/Info.plist build/AlessioOS.app/Contents/ && swiftc -O -framework Cocoa -framework WebKit -framework Speech -framework AVFoundation -o build/AlessioOS.app/Contents/MacOS/AlessioOS app/AlessioOS/main.swift && codesign --force --sign - build/AlessioOS.app",
+    "app:build": "mkdir -p build/AlessioOS.app/Contents/MacOS && cp app/AlessioOS/Info.plist build/AlessioOS.app/Contents/ && swiftc -O -framework Cocoa -framework WebKit -framework Speech -framework AVFoundation -framework CoreAudio -framework AudioToolbox -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker app/AlessioOS/Info.plist -o build/AlessioOS.app/Contents/MacOS/AlessioOS app/AlessioOS/main.swift && codesign --force --sign - build/AlessioOS.app && tccutil reset SpeechRecognition com.alessio.alessio-os && tccutil reset Microphone com.alessio.alessio-os",
     "app:run": "npm run app:build && open build/AlessioOS.app",
     "ocr:compile": "swiftc -O -framework Vision -framework AppKit -o src/tools/ocr-vision src/tools/ocr-vision.swift",
     "stt:setup": "bash scripts/setup-whisper.sh",
