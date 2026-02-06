@@ -51,13 +51,21 @@ function sttCreateRecognizer() {
       sttFinal += sttInterim;
       sttInterim = '';
       sttRestarts++;
-      // New instance every restart — Chrome degrades after many start/stop on same object
+      // Same-object restart — Chrome handles this better than new instances.
+      // Fresh instance only as fallback (with delay) when same-object fails.
       try {
-        speechRec = sttCreateRecognizer();
         speechRec.start();
       } catch(e) {
-        addLog('STT restart fallito (#' + sttRestarts + '): ' + e, 'error');
-        sttDeliverResult();
+        setTimeout(function() {
+          if (!speechActive) { sttDeliverResult(); return; }
+          try {
+            speechRec = sttCreateRecognizer();
+            speechRec.start();
+          } catch(e2) {
+            addLog('STT restart fallito (#' + sttRestarts + '): ' + e2, 'error');
+            sttDeliverResult();
+          }
+        }, 300);
       }
       return;
     }
