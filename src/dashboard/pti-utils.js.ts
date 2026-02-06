@@ -94,4 +94,34 @@ function setField(id, val) { var el = document.getElementById(id); if (el) el.va
 function parseSSE(e, fallback) {
   try { return JSON.parse(e.data); } catch(err) { return fallback || {}; }
 }
+
+// ── PTI INFRASTRUTTURA — assert, SALTI, propaga ──
+
+/** Assert PTI — guardia strutturale, non-throwing (log + console.error) */
+function assert(cond, msg) {
+  if (!cond) {
+    var error = '[PTI assert] ' + (msg || 'assertion failed');
+    if (typeof addLog === 'function') addLog(error, 'error');
+    console.error(error);
+  }
+}
+
+/** SALTI — mappa esplicita di propagazione */
+var SALTI = {};
+
+/** Registra un salto: quando nodo cambia, chiama fn */
+function registraSalto(nodo, fn) {
+  if (!SALTI[nodo]) SALTI[nodo] = [];
+  SALTI[nodo].push(fn);
+}
+
+/** Propaga delta attraverso la mappa SALTI */
+function propaga(nodo, delta) {
+  var fns = SALTI[nodo] || [];
+  for (var i = 0; i < fns.length; i++) {
+    try { fns[i](delta); } catch (e) {
+      if (typeof addLog === 'function') addLog('[propaga] ' + nodo + ' errore: ' + e, 'error');
+    }
+  }
+}
 `;
