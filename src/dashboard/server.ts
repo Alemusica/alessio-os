@@ -489,13 +489,23 @@ import { dashboardPage } from './layout.html.js';
 import { ptiUtilsJs } from './pti-utils.js.js';
 import { aosJs } from './aos-rytmo.js.js';
 import { terminalJs } from './terminal.js.js';
-import { stateJs } from './state.js.js';
+import { stateCoreJs } from './state.core.js.js';
+import { stateNavJs } from './state.nav.js.js';
+import { stateRenderJs } from './state.render.js.js';
+import { stateSttJs } from './state.stt.js.js';
+import { stateChatJs } from './state.chat.js.js';
+import { stateTimelineJs } from './state.timeline.js.js';
+import { stateGithubJs } from './state.github.js.js';
+import { stateAgentsJs } from './state.agents.js.js';
 import { graphJs } from './graph-view.js.js';
 import { depthLabPage } from './depth-lab.html.js';
 
-// --- HTML Dashboard (composed from tissues) ---
+// --- HTML Dashboard (composed from tissues — PTI concat order) ---
 function dashboardHTML(): string {
-  const js = ptiUtilsJs + '\n' + aosJs + '\n' + terminalJs + '\n' + stateJs + '\n' + graphJs;
+  const js = ptiUtilsJs + '\n' + aosJs + '\n' + terminalJs + '\n'
+    + stateCoreJs + '\n' + stateNavJs + '\n' + stateRenderJs + '\n'
+    + stateSttJs + '\n' + stateChatJs + '\n' + stateTimelineJs + '\n'
+    + stateGithubJs + '\n' + stateAgentsJs + '\n' + graphJs;
   return dashboardPage({ css, js });
 }
 
