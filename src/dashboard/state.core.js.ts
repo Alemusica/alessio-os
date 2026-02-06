@@ -242,6 +242,177 @@ function restartServer() {
   setTimeout(function() { location.reload(); }, 2000);
 }
 
+// ── SSE EVENT LISTENERS ──
+function setupSSEListeners(es) {
+  es.addEventListener('agents:update', function(e) {
+    var d = parseSSE(e);
+    var agents = d.agents || [];
+    renderAgents(agents);
+    document.getElementById('kb-agents-count').textContent = agents.length;
+    var mainEl = document.querySelector('.main');
+    if (agents.length === 0) {
+      mainEl.classList.remove('thinking');
+      renderAgentsStrip([]);
+    }
+  });
+
+  es.addEventListener('tasks:update', function(e) {
+    var d = parseSSE(e);
+    var tasks = d.tasks || [];
+    renderTasks(tasks);
+    document.getElementById('kb-tasks-count').textContent = tasks.length;
+  });
+
+  es.addEventListener('kb:update', function(e) {
+    var d = parseSSE(e);
+    if (d.kb) renderKB(d.kb);
+  });
+
+  es.addEventListener('projects:update', function(e) {
+    var d = parseSSE(e);
+    renderSidebarProjects(d.chatProjects || []);
+  });
+
+  es.addEventListener('state', function(e) {
+    var state = parseSSE(e);
+    renderAgents(state.agents || []);
+    renderTasks(state.tasks || []);
+    if (state.kb) renderKB(state.kb);
+    document.getElementById('kb-agents-count').textContent = (state.agents || []).length;
+    document.getElementById('kb-tasks-count').textContent = (state.tasks || []).length;
+    renderSidebarProjects(state.chatProjects || []);
+    var mainEl = document.querySelector('.main');
+    if ((state.agents || []).length === 0) {
+      mainEl.classList.remove('thinking');
+      renderAgentsStrip([]);
+    }
+  });
+
+  es.addEventListener('log', function(e) {
+    var d = parseSSE(e);
+    addLog(d.text, d.cls || '');
+    if (d.cls === 'agent-name' || (d.text && d.text.indexOf('dispatched') > -1)) {
+      document.querySelector('.main').classList.add('thinking');
+    }
+  });
+
+  es.addEventListener('response', function(e) {
+    var d = parseSSE(e);
+    document.querySelector('.main').classList.remove('thinking');
+    var thinkEl = document.getElementById('thinking-stream');
+    if (thinkEl) thinkEl.removeAttribute('id');
+    if (d.text) {
+      appendChatBubble('assistant', d.text);
+    }
+    if (S.project) {
+      refreshSessionsSidebar(S.project);
+    }
+  });
+
+  es.addEventListener('open', function() {
+    sseRetries = 0;
+    addLog('Dashboard connessa', 'event');
+    document.getElementById('health-dot').style.background = 'var(--green)';
+  });
+
+  es.addEventListener('error', function() {
+    addLog('Connessione persa — riconnessione...', 'error');
+    document.getElementById('health-dot').style.background = 'var(--rose)';
+    es.close();
+    reconnectSSE();
+  });
+
+  es.addEventListener('pti:delta', function(e) {
+    try {
+      var data = parseSSE(e);
+      if (S.view !== 'graph') return;
+      var entries = data.entries || [];
+      entries.forEach(function(entry, i) {
+        setTimeout(function() { GraphRenderer.flash(entry.nodoId); }, i * 120);
+      });
+    } catch (err) { /* skip */ }
+  });
+
+  es.addEventListener('action:new', function(e) {
+    try {
+      var a = parseSSE(e);
+      if (S.view === 'timeline' && timelineMode === 'actions' && S.project === a.project) {
+        var icon = ACTION_ICONS[a.action_type] || '\u25CF';
+        var color = ACTION_COLORS[a.action_type] || 'var(--dim)';
+        var time = a.created_at ? fmtTime(a.created_at, 'time') : '';
+        var html = '<div class="action-entry action-entry-new">' +
+          '<span class="action-icon" style="color:' + color + '">' + icon + '</span>' +
+          '<div class="action-content">' +
+            '<div class="action-title">' + esc(a.title) + '</div>' +
+            (a.details ? '<div class="action-details">' + esc(a.details).slice(0, 120) + '</div>' : '') +
+            '<div class="action-meta">' + (a.agent_id ? esc(a.agent_id) + ' | ' : '') + time + '</div>' +
+          '</div>' +
+        '</div>';
+        var el = document.getElementById('actions-timeline');
+        if (el) {
+          var empty = el.querySelector('.empty');
+          if (empty) empty.remove();
+          el.insertAdjacentHTML('afterbegin', html);
+        }
+      }
+      addLog('[ACTION] ' + (a.action_type || 'unknown') + ': ' + (a.title || ''), 'event');
+    } catch (err) { /* skip */ }
+  });
+
+  es.addEventListener('thinking', function(e) {
+    try {
+      var d = parseSSE(e);
+      var text = d.text || '';
+      var aid = d.agentId || '';
+      var thinkEl = document.getElementById('thinking-stream');
+      if (!thinkEl) {
+        var html = '<div class="msg msg-assistant">' +
+          '<div class="msg-header"><span class="msg-role">thinking</span> <span class="msg-time thinking-pulse">' + esc(aid) + '</span></div>' +
+          '<div class="msg-thinking" id="thinking-stream" style="display:block"></div>' +
+        '</div>';
+        var area = document.getElementById('messages-area');
+        if (area) area.insertAdjacentHTML('beforeend', html);
+        scrollToBottom('chat-content');
+        thinkEl = document.getElementById('thinking-stream');
+      }
+      if (thinkEl) {
+        thinkEl.textContent += text;
+        scrollToBottom('chat-content');
+      }
+      addLog('[thinking] ' + text.slice(0, 100).replace(/\\n/g, ' '), 'dim');
+    } catch (err) { /* skip */ }
+  });
+
+  es.addEventListener('tool_use', function(e) {
+    try {
+      var d = parseSSE(e);
+      var tool = d.toolName || 'tool';
+      var aid = d.agentId || '';
+      var inputStr = '';
+      try { inputStr = typeof d.input === 'string' ? d.input : JSON.stringify(d.input || {}); } catch(x) {}
+      var html = '<div class="msg msg-tool-use">' +
+        '<span class="tool-badge">' + esc(tool) + '</span>' +
+        (inputStr ? '<span class="tool-input">' + esc(inputStr).slice(0, 120) + '</span>' : '') +
+      '</div>';
+      var area = document.getElementById('messages-area');
+      if (area) area.insertAdjacentHTML('beforeend', html);
+      scrollToBottom('chat-content');
+      addLog('[' + aid + '] tool: ' + tool, 'event');
+    } catch (err) { /* skip */ }
+  });
+}
+
+// ── INITIAL LOAD ──
+apiCall('/api/state').then(function(state) {
+  renderAgents(state.agents || []);
+  renderTasks(state.tasks || []);
+  if (state.kb) renderKB(state.kb);
+  document.getElementById('kb-agents-count').textContent = (state.agents || []).length;
+  document.getElementById('kb-tasks-count').textContent = (state.tasks || []).length;
+  renderSidebarProjects(state.chatProjects || []);
+  addLog('Stato iniziale caricato', 'event');
+});
+
 // ── SALTI MAP — propagazione esplicita ──
 function initSalti() {
   // S.project → breadcrumb
