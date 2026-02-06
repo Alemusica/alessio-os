@@ -117,7 +117,7 @@ async function getFullState(): Promise<Record<string, unknown>> {
       FROM chat_log
       GROUP BY project
       ORDER BY msg_count DESC
-      LIMIT 30
+      LIMIT 100
     `),
   ]);
 
