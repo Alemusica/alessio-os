@@ -162,7 +162,7 @@ export function depthLabLayoutJS(): string {
     setTimeout(function() {
       layoutTransitioning = false;
       for (var i = 0; i < n; i++) {
-        items[i].style.transition = 'filter 0.6s ease, opacity 0.6s ease, font-size 0.8s ease';
+        items[i].style.transition = '';
       }
     }, 1300);
   };`;

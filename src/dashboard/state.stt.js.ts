@@ -9,13 +9,101 @@ var speechRec = null;
 var speechActive = false;
 var sttFinal = '';
 var sttInterim = '';
+var sttRestarts = 0;
 
-function toggleMic() {
+function sttCreateRecognizer() {
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   var btn = document.getElementById('mic-btn');
   var prompt = document.getElementById('dz-prompt');
 
+  var rec = new SpeechRecognition();
+  rec.lang = 'it-IT';
+  rec.continuous = true;
+  rec.interimResults = true;
+
+  rec.onstart = function() {
+    speechActive = true;
+    btn.classList.add('recording');
+    btn.textContent = 'Stop';
+    prompt.innerHTML = '<span style="color:var(--accent)">&#9679;</span> Ascolto...';
+  };
+
+  rec.onresult = function(event) {
+    sttInterim = '';
+    for (var i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        sttFinal += event.results[i][0].transcript;
+      } else {
+        sttInterim += event.results[i][0].transcript;
+      }
+    }
+    var preview = sttFinal + sttInterim;
+    if (preview) {
+      // Show TAIL of preview — for long recordings the start is stale
+      var tail = preview.length > 120 ? '...' + esc(preview).slice(-117) : esc(preview);
+      prompt.innerHTML = '<span style="color:var(--accent)">&#9679;</span> ' + tail;
+    }
+  };
+
+  rec.onend = function() {
+    if (speechActive) {
+      // Promuovi interim a final PRIMA del restart
+      sttFinal += sttInterim;
+      sttInterim = '';
+      sttRestarts++;
+      // New instance every restart — Chrome degrades after many start/stop on same object
+      try {
+        speechRec = sttCreateRecognizer();
+        speechRec.start();
+      } catch(e) {
+        addLog('STT restart fallito (#' + sttRestarts + '): ' + e, 'error');
+        sttDeliverResult();
+      }
+      return;
+    }
+    sttDeliverResult();
+  };
+
+  rec.onerror = function(event) {
+    // Fatal errors: stop auto-restart, deliver what we have
+    var fatal = event.error === 'audio-capture' ||
+                event.error === 'not-allowed' ||
+                event.error === 'service-not-allowed';
+    if (fatal) {
+      speechActive = false;
+      addLog('STT errore fatale: ' + event.error, 'error');
+    }
+    // Non-fatal (no-speech, aborted, network): onend will auto-restart
+    if (event.error !== 'aborted' && event.error !== 'no-speech') {
+      addLog('STT errore: ' + event.error, 'error');
+    }
+  };
+
+  return rec;
+}
+
+function sttDeliverResult() {
+  var btn = document.getElementById('mic-btn');
+  var prompt = document.getElementById('dz-prompt');
+  speechActive = false;
+  btn.classList.remove('recording');
+  btn.textContent = 'Registra';
+  prompt.textContent = '| Drop OCR/STT';
+
+  var text = (sttFinal + sttInterim).trim();
+  if (text) {
+    var input = document.querySelector('.cmd-input');
+    input.value = text;
+    resizeInput(input);
+    input.focus();
+    addLog('STT (' + sttRestarts + ' restarts): "' + text.slice(0, 80) + '..."', 'event');
+  } else {
+    addLog('STT: nessun testo riconosciuto', 'event');
+  }
+}
+
+function toggleMic() {
   if (speechActive && speechRec) {
-    // Mark inactive BEFORE stop so onend knows user explicitly stopped
     speechActive = false;
     speechRec.stop();
     return;
@@ -29,73 +117,9 @@ function toggleMic() {
 
   sttFinal = '';
   sttInterim = '';
-  speechRec = new SpeechRecognition();
-  speechRec.lang = 'it-IT';
-  speechRec.continuous = true;
-  speechRec.interimResults = true;
-
-  speechRec.onstart = function() {
-    speechActive = true;
-    btn.classList.add('recording');
-    btn.textContent = 'Stop';
-    prompt.innerHTML = '<span style="color:var(--accent)">&#9679;</span> Ascolto...';
-    addLog('STT avviato (Web Speech API)', 'event');
-  };
-
-  speechRec.onresult = function(event) {
-    sttInterim = '';
-    for (var i = event.resultIndex; i < event.results.length; i++) {
-      if (event.results[i].isFinal) {
-        sttFinal += event.results[i][0].transcript;
-      } else {
-        sttInterim += event.results[i][0].transcript;
-      }
-    }
-    // Show live preview
-    var preview = sttFinal + sttInterim;
-    if (preview) {
-      prompt.innerHTML = '<span style="color:var(--accent)">&#9679;</span> ' + esc(preview).slice(0, 120);
-    }
-  };
-
-  speechRec.onend = function() {
-    // Web Speech API auto-stops after silence even with continuous=true.
-    // If user hasn't explicitly stopped (speechActive still true), auto-restart.
-    if (speechActive) {
-      // Promuovi interim a final PRIMA del restart — la nuova sessione resetta sttInterim
-      sttFinal += sttInterim;
-      sttInterim = '';
-      try { speechRec.start(); } catch(e) { /* already running */ }
-      return;
-    }
-
-    btn.classList.remove('recording');
-    btn.textContent = 'Registra';
-    prompt.textContent = '| Drop OCR/STT';
-
-    // Concatena final + interim — stop() non garantisce isFinal per l'ultimo chunk
-    var text = (sttFinal + sttInterim).trim();
-    if (text) {
-      var input = document.querySelector('.cmd-input');
-      input.value = text;
-      resizeInput(input);
-      input.focus();
-      addLog('STT: "' + text.slice(0, 80) + '"', 'event');
-    } else {
-      addLog('STT: nessun testo riconosciuto', 'event');
-    }
-  };
-
-  speechRec.onerror = function(event) {
-    speechActive = false;
-    btn.classList.remove('recording');
-    btn.textContent = 'Registra';
-    prompt.textContent = '| Drop OCR/STT';
-    if (event.error !== 'aborted') {
-      addLog('STT errore: ' + event.error, 'error');
-    }
-  };
-
+  sttRestarts = 0;
+  speechRec = sttCreateRecognizer();
+  addLog('STT avviato (Web Speech API)', 'event');
   speechRec.start();
 }
 
