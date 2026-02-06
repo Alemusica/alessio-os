@@ -136,6 +136,74 @@ export const css = `
     flex-direction: column;
     overflow-y: auto;
     flex-shrink: 0;
+    position: relative;
+    transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+                opacity 0.3s ease,
+                padding 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .sidebar.sb-collapsed {
+    width: 0;
+    opacity: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+  .sidebar.sb-dissolving {
+    opacity: 0.5;
+  }
+  #sidebar-shader {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    mix-blend-mode: soft-light;
+  }
+  .sidebar .nav-section { position: relative; z-index: 1; }
+  .sidebar .nav-divider { position: relative; z-index: 1; }
+  /* Sidebar toggle — animated breathing hamburger */
+  .sidebar-toggle {
+    background: transparent;
+    border: none;
+    width: 18px;
+    height: 14px;
+    padding: 0;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: stretch;
+  }
+  .sidebar-toggle span {
+    display: block;
+    height: 2px;
+    background: var(--dim);
+    border-radius: 1px;
+    transform-origin: center;
+    transition: transform 0.3s ease, opacity 0.3s ease, background 0.15s ease;
+  }
+  /* Breathing animation — each line pulses slightly offset */
+  .sidebar-toggle span:nth-child(1) { animation: hamburger-breathe 3s ease-in-out infinite; }
+  .sidebar-toggle span:nth-child(2) { animation: hamburger-breathe 3s ease-in-out infinite 0.15s; }
+  .sidebar-toggle span:nth-child(3) { animation: hamburger-breathe 3s ease-in-out infinite 0.3s; }
+  @keyframes hamburger-breathe {
+    0%, 100% { transform: scaleX(1); opacity: 0.5; }
+    50% { transform: scaleX(0.8); opacity: 1; }
+  }
+  .sidebar-toggle:hover span { background: var(--accent); }
+  /* Transform to X when sidebar closed */
+  .sidebar-toggle.active span:nth-child(1) {
+    animation: none;
+    transform: rotate(45deg) translate(3px, 3px);
+  }
+  .sidebar-toggle.active span:nth-child(2) {
+    animation: none;
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  .sidebar-toggle.active span:nth-child(3) {
+    animation: none;
+    transform: rotate(-45deg) translate(3px, -3px);
   }
   .sidebar::-webkit-scrollbar { width: 3px; }
   .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
@@ -446,6 +514,21 @@ export const css = `
     color: var(--dim);
     opacity: 0.4;
   }
+  /* Copy button on assistant messages — always visible (Ollama style) */
+  .msg-copy {
+    opacity: 0.4;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: var(--fs-sm);
+    color: var(--dim);
+    padding: 2px 6px;
+    margin-left: auto;
+    line-height: 1;
+    transition: opacity 0.15s ease, color 0.15s ease;
+  }
+  .msg-copy:hover { opacity: 1; color: var(--text); }
+  .msg-copy.copied { color: var(--green); opacity: 1; }
   .msg-body {
     font-size: var(--fs-body);
     line-height: calc(1em * var(--phi));
@@ -903,7 +986,7 @@ export const css = `
   }
   #terminal::-webkit-scrollbar { width: 2px; }
   #terminal::-webkit-scrollbar-thumb { background: var(--border); }
-  .log-line { margin-bottom: 0; }
+  .log-line { margin-bottom: 0; position: relative; padding-right: var(--s3); }
   /* Stream output (agent thinking) — more visible */
   .log-line .stream {
     color: var(--text);
@@ -913,7 +996,66 @@ export const css = `
   .log-line .ts { color: var(--dim); opacity: 0.4; font-size: var(--fs-xs); }
   .log-line .event { color: var(--green); }
   .log-line .agent-name { color: var(--accent); }
-  .log-line .error { color: var(--rose); }
+  .log-line .error { color: var(--amber); }
+
+  /* Copy button — appears on hover (Claude Code style) */
+  .log-copy {
+    opacity: 0;
+    position: absolute;
+    right: var(--s1);
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: var(--fs-xs);
+    color: var(--dim);
+    padding: 1px 4px;
+    line-height: 1;
+    transition: opacity 0.15s ease, color 0.15s ease;
+  }
+  .log-line:hover .log-copy,
+  .log-code-header:hover .log-copy { opacity: 0.6; }
+  .log-copy:hover { opacity: 1 !important; color: var(--text); }
+  .log-copy.copied { color: var(--green); opacity: 1 !important; }
+
+  /* Collapsible code blocks in terminal */
+  .log-code { margin: var(--s1) 0; }
+  .log-code-header {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-right: var(--s3);
+    display: flex;
+    align-items: center;
+    gap: var(--s1);
+  }
+  .log-code-chevron {
+    font-size: var(--fs-2xs);
+    color: var(--dim);
+    transition: transform 0.15s ease;
+    display: inline-block;
+    width: 10px;
+  }
+  .log-code-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s cubic-bezier(0.25, 0.1, 0.25, 1);
+  }
+  .log-code-body.expanded {
+    max-height: var(--s7); /* 144px Fibonacci */
+    overflow-y: auto;
+  }
+  .log-code-body pre {
+    margin: 0;
+    padding: var(--s1) var(--s2);
+    background: rgba(0,0,0,0.03);
+    border-radius: 3px;
+    font-size: var(--fs-xs);
+    line-height: 1.6;
+  }
+  .log-code-body code { font-family: var(--mono); }
 
   /* ── AGENTS VIEW ── */
   .agent {
@@ -1186,6 +1328,21 @@ export const css = `
   }
   .section-gap { margin-top: var(--s5); }
 
+  /* Header link (3D demo etc.) */
+  .header-link {
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    color: var(--dim);
+    text-decoration: none;
+    letter-spacing: 0.08em;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .header-link:hover { color: var(--accent); border-color: var(--accent); }
+
   /* ── TYPOGRAPHY MENU ── */
   .typo-gear {
     background: none; border: none; cursor: pointer; color: var(--dim);
@@ -1233,8 +1390,9 @@ export const css = `
     flex: 1; resize: none; padding: var(--s1) 0; border: none;
     border-bottom: 1px solid var(--border);
     font-family: var(--font); font-size: var(--fs-sm);
-    background: transparent; color: var(--text); height: var(--row); max-height: var(--s6);
-    line-height: 1.4; transition: border-color 0.2s;
+    background: transparent; color: var(--text); height: var(--row); max-height: 50vh;
+    line-height: 1.4; transition: border-color 0.2s, height 0.15s ease;
+    overflow-y: auto;
   }
   .cmd-input:focus { outline: none; border-bottom-color: var(--accent); }
   .cmd-input::placeholder { color: var(--dim); }

@@ -75,6 +75,24 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   <div>ITEMS <strong>${projectData.length}</strong></div>
 </div>
 
+<!-- ── DEBUG PROBE (toggle with D key) ── -->
+<div class="d3-probe" id="probe" style="display:none">
+  <div class="d3-probe-title">PROBE</div>
+  <div>mouse <strong id="pr-mouse">0, 0</strong></div>
+  <div>baseTarget <strong id="pr-base">0, 0, 0</strong></div>
+  <div>camera <strong id="pr-cam">0, 0, 0</strong></div>
+  <div>delta <strong id="pr-delta">0, 0</strong></div>
+  <div>hovered <strong id="pr-hovered">—</strong></div>
+  <div>aura <strong id="pr-aura">0</strong></div>
+  <div>screenXY <strong id="pr-screen">0, 0</strong></div>
+  <div>auraR <strong id="pr-aura-r">0</strong></div>
+  <div>dist <strong id="pr-dist">0</strong></div>
+  <div>scale <strong id="pr-scale">0</strong></div>
+  <div>top3 <strong id="pr-top3">—</strong></div>
+</div>
+<div class="d3-probe-dot" id="probe-dot" style="display:none"></div>
+<div class="d3-probe-ring" id="probe-ring" style="display:none"></div>
+
 <div class="d3-aperture" id="aperture">
   <label>APERTURE</label>
   <div class="d3-iris" id="iris"></div>
@@ -205,7 +223,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     // Organic
     pullFactor: 0.12,
     maxRipple: 1500,
-    hitRadius: 60,
+    hitRadius: 25,
     maxOffset: 80,
     lerpBase: 0.04,
     lerpNear: 0.20,
@@ -296,11 +314,15 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   var itemOffset = [];
   var itemOffsetTarget = [];
   var itemSeed = [];
+  var itemHalfW = [];  // half-width in 3D space (for box aura)
+  var itemHalfH = [];  // half-height in 3D space
   for (var i = 0; i < n; i++) {
     itemBasePos.push({ x: 0, y: 0, z: 0 });
     itemOffset.push({ x: 0, y: 0 });
     itemOffsetTarget.push({ x: 0, y: 0 });
     itemSeed.push(0.8 + ((i * PHI) % 1) * 0.4);
+    itemHalfW.push(items[i].offsetWidth / 2);
+    itemHalfH.push(items[i].offsetHeight / 2);
   }
   var layoutTransitioning = false;
 

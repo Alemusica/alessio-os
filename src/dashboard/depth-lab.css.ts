@@ -59,11 +59,8 @@ export function depthLabCSS(): string {
     white-space: nowrap;
     cursor: pointer;
     text-align: center;
-    /* No CSS transform transition — handled by rAF for organic movement */
-    transition:
-      filter 0.6s ease,
-      opacity 0.6s ease,
-      font-size 0.8s ease;
+    /* filter + opacity driven by rAF (updateDoF) — NO CSS transition */
+    transition: font-size 0.8s ease;
   }
 
   .d3-name {
@@ -106,6 +103,53 @@ export function depthLabCSS(): string {
     pointer-events: none;
   }
   .d3-hud strong { color: var(--text-secondary); font-weight: 400; }
+
+  /* ── DEBUG PROBE ── */
+  .d3-probe {
+    position: fixed;
+    top: 34px;
+    right: 34px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+    letter-spacing: 0.04em;
+    z-index: 100;
+    line-height: 1.8;
+    background: rgba(250, 248, 245, 0.92);
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 4px;
+    padding: 8px 12px;
+    min-width: 200px;
+    pointer-events: none;
+  }
+  .d3-probe-title {
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: 0.12em;
+    margin-bottom: 4px;
+    font-size: 9px;
+  }
+  .d3-probe strong { color: var(--text); font-weight: 400; }
+  /* Dot: posizione proiettata dell'item hovered */
+  .d3-probe-dot {
+    position: fixed;
+    width: 8px; height: 8px;
+    background: #c03030;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 99;
+    pointer-events: none;
+    box-shadow: 0 0 6px rgba(192, 48, 48, 0.5);
+  }
+  /* Ring: raggio aura dell'item hovered */
+  .d3-probe-ring {
+    position: fixed;
+    border: 1px solid rgba(192, 48, 48, 0.3);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 98;
+    pointer-events: none;
+  }
 
   /* ── FOCAL PLANE ── */
   .d3-focal-line {

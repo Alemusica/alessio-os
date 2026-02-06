@@ -310,6 +310,18 @@ export function depthLabInteractionJS(): string {
     if (e.key === '1') window.switchLayout('fibonacci');
     if (e.key === '2') window.switchLayout('cluster');
     if (e.key === '3') window.switchLayout('alpha');
+    if (e.key === 'd' || e.key === 'D') {
+      window._probeOn = !window._probeOn;
+      var probeEl = document.getElementById('probe');
+      var dotEl = document.getElementById('probe-dot');
+      var ringEl = document.getElementById('probe-ring');
+      if (probeEl) probeEl.style.display = window._probeOn ? '' : 'none';
+      if (!window._probeOn) {
+        if (dotEl) dotEl.style.display = 'none';
+        if (ringEl) ringEl.style.display = 'none';
+      }
+      return;
+    }
     startAnimate();
   });
 

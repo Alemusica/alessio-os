@@ -24,9 +24,11 @@ ${opts.css}
 <canvas id="granim-canvas"></canvas>
 
 <header>
+  <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" title="Toggle Sidebar"><span></span><span></span><span></span></button>
   <h1>Alessio-OS</h1>
   <span class="subtitle">PTI Multi-Agent Hub</span>
   <div style="position:relative;margin-left:auto;display:flex;align-items:center;gap:var(--s3)">
+    <a class="header-link" href="/depth-lab" title="3D Demo">3D</a>
     <button class="typo-gear" onclick="toggleTypoMenu()" title="Design Tokens">&#9881;</button>
     <div class="health-indicator" id="health">
       <span class="dot" id="health-dot"></span>
@@ -114,7 +116,8 @@ ${opts.css}
 <div class="layout">
 
   <!-- SIDEBAR -->
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
+    <canvas id="sidebar-shader"></canvas>
     <div class="nav-section">
       <div class="nav-label">Progetti</div>
       <div id="projects-nav"></div>

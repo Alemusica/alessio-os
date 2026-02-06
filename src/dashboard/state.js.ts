@@ -50,27 +50,104 @@ function reconnectSSE() {
   setTimeout(connectSSE, delay);
 }
 connectSSE();
-const terminal = document.getElementById('terminal');
 
-function addLog(text, cls) {
-  S.logCount++;
-  document.getElementById('log-count').textContent = S.logCount;
-  const ts = new Date().toLocaleTimeString('it-IT', { hour12: false });
-  const d = document.createElement('div');
-  d.className = 'log-line';
-  d.innerHTML = '<span class="ts">' + ts + '</span> ' +
-    (cls ? '<span class="' + cls + '">' + text + '</span>' : text);
-  terminal.appendChild(d);
-  terminal.scrollTop = terminal.scrollHeight;
-  while (terminal.children.length > 200) terminal.removeChild(terminal.firstChild);
+// ── SIDEBAR ORGANIC TOGGLE ──
+var _sidebarRaf = 0;
+var _sidebarShaderCtx = null;
+
+function toggleSidebar() {
+  var sb = document.getElementById('sidebar');
+  var btn = document.getElementById('sidebar-toggle');
+  if (!sb) return;
+  var isOpen = !sb.classList.contains('sb-collapsed');
+  if (isOpen) {
+    sb.classList.add('sb-dissolving');
+    if (btn) btn.classList.add('active');
+    startSidebarShader('close');
+    setTimeout(function() {
+      sb.classList.add('sb-collapsed');
+      sb.classList.remove('sb-dissolving');
+    }, 400);
+  } else {
+    sb.classList.remove('sb-collapsed');
+    if (btn) btn.classList.remove('active');
+    startSidebarShader('open');
+  }
 }
 
-// ── ESCAPE HTML ──
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+function startSidebarShader(mode) {
+  var canvas = document.getElementById('sidebar-shader');
+  if (!canvas) return;
+  var sb = document.getElementById('sidebar');
+  canvas.width = sb.offsetWidth || 233;
+  canvas.height = sb.offsetHeight || 600;
+  if (!_sidebarShaderCtx) _sidebarShaderCtx = canvas.getContext('2d');
+  var ctx = _sidebarShaderCtx;
+  if (!ctx) return;
+
+  if (_sidebarRaf) cancelAnimationFrame(_sidebarRaf);
+
+  var start = performance.now();
+  var duration = 400;
+
+  function draw(now) {
+    var elapsed = now - start;
+    var progress = Math.min(elapsed / duration, 1);
+
+    // Easing: cubic ease-out
+    var ease = 1 - Math.pow(1 - progress, 3);
+    var w = canvas.width;
+    var h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // Breathing pulse: continuous sine wave
+    var breathe = Math.sin(now * 0.003) * 0.3 + 0.7;
+
+    // Intensity based on mode + progress
+    var intensity;
+    if (mode === 'open') {
+      intensity = ease * 0.15 * breathe;
+    } else {
+      intensity = (1 - ease) * 0.25 * breathe;
+    }
+
+    // Radial gradient — organic red membrane from right edge
+    var cx = w * 0.85;
+    var cy = h * 0.4;
+    var radius = Math.max(w, h) * 0.9;
+    var grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+    grad.addColorStop(0, 'rgba(139, 32, 32, ' + intensity + ')');
+    grad.addColorStop(0.4, 'rgba(139, 32, 32, ' + (intensity * 0.5) + ')');
+    grad.addColorStop(1, 'rgba(139, 32, 32, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    // Second organic blob — lower left, subtler
+    var cx2 = w * 0.2;
+    var cy2 = h * 0.7;
+    var radius2 = Math.max(w, h) * 0.6;
+    var breathe2 = Math.sin(now * 0.002 + 1.5) * 0.2 + 0.5;
+    var int2 = intensity * 0.4 * breathe2;
+    var grad2 = ctx.createRadialGradient(cx2, cy2, 0, cx2, cy2, radius2);
+    grad2.addColorStop(0, 'rgba(160, 40, 40, ' + int2 + ')');
+    grad2.addColorStop(1, 'rgba(160, 40, 40, 0)');
+    ctx.fillStyle = grad2;
+    ctx.fillRect(0, 0, w, h);
+
+    // Continue breathing loop after transition completes (open mode only)
+    if (mode === 'open' || progress < 1) {
+      _sidebarRaf = requestAnimationFrame(draw);
+    } else {
+      _sidebarRaf = 0;
+      ctx.clearRect(0, 0, w, h);
+    }
+  }
+
+  _sidebarRaf = requestAnimationFrame(draw);
 }
+
+// Auto-start breathing on load
+setTimeout(function() { startSidebarShader('open'); }, 300);
 
 // ── VIEWS ──
 function switchView(name) {
@@ -291,10 +368,12 @@ async function loadMessages(project, session) {
         }
       }
       var body = renderMd(content);
+      var copyBtn = isUser ? '' : '<button class="msg-copy" onclick="copyMessage(this)" title="Copy">' + COPY_ICON + '</button>';
       html += '<div class="msg ' + (isUser ? 'msg-user' : 'msg-assistant') + '">' +
         '<div class="msg-header">' +
           '<span class="msg-role">' + (isUser ? 'tu' : 'assistant') + '</span>' +
           '<span class="msg-time">' + time + '</span>' +
+          copyBtn +
         '</div>' +
         thinkingHtml +
         '<div class="msg-body">' + body + '</div>' +
@@ -690,18 +769,7 @@ apiCall('/api/state').then(function(state) {
   addLog('Stato iniziale caricato', 'event');
 });
 
-// ── TERMINAL TOGGLE ──
-function toggleTerminal() {
-  const panel = document.getElementById('terminal-panel');
-  const toggle = document.getElementById('tp-toggle');
-  if (panel.classList.contains('collapsed')) {
-    panel.classList.remove('collapsed');
-    toggle.innerHTML = '&minus;';
-  } else {
-    panel.classList.add('collapsed');
-    toggle.innerHTML = '+';
-  }
-}
+// toggleTerminal() → moved to terminal.js.ts tissue
 
 // ── DRAG AND DROP ──
 const dropZone = document.getElementById('drop-zone');
@@ -834,13 +902,31 @@ function appendChatBubble(role, content) {
   var body = isUser ? esc(content) : renderMd(String(content));
   var div = document.createElement('div');
   div.className = 'msg ' + (isUser ? 'msg-user' : 'msg-assistant');
+  // Copy button only for assistant messages
+  var copyBtn = isUser ? '' : '<button class="msg-copy" onclick="copyMessage(this)" title="Copy">' + COPY_ICON + '</button>';
   div.innerHTML = '<div class="msg-header">' +
     '<span class="msg-role">' + (isUser ? 'tu' : 'assistant') + '</span>' +
     '<span class="msg-time">' + time + '</span>' +
+    copyBtn +
   '</div>' +
   '<div class="msg-body">' + body + '</div>';
   el.appendChild(div);
   scrollToBottom('chat-content');
+}
+
+function copyMessage(btn) {
+  var msg = btn.closest('.msg');
+  var body = msg.querySelector('.msg-body');
+  // Get text content (strips HTML)
+  var text = body.innerText || body.textContent;
+  navigator.clipboard.writeText(text.trim()).then(function() {
+    btn.innerHTML = CHECK_ICON;
+    btn.classList.add('copied');
+    setTimeout(function() {
+      btn.innerHTML = COPY_ICON;
+      btn.classList.remove('copied');
+    }, 1500);
+  });
 }
 
 /** Append or update a thinking indicator for streaming */
@@ -993,6 +1079,9 @@ function toggleMic() {
     // Web Speech API auto-stops after silence even with continuous=true.
     // If user hasn't explicitly stopped (speechActive still true), auto-restart.
     if (speechActive) {
+      // Promuovi interim a final PRIMA del restart — la nuova sessione resetta sttInterim
+      sttFinal += sttInterim;
+      sttInterim = '';
       try { speechRec.start(); } catch(e) { /* already running */ }
       return;
     }
@@ -1001,11 +1090,14 @@ function toggleMic() {
     btn.textContent = 'Registra';
     prompt.textContent = '| Drop OCR/STT';
 
-    // Use final text, or fall back to last interim if user stopped quickly
-    var text = (sttFinal || sttInterim).trim();
+    // Concatena final + interim — stop() non garantisce isFinal per l'ultimo chunk
+    var text = (sttFinal + sttInterim).trim();
     if (text) {
       var input = document.querySelector('.cmd-input');
       input.value = text;
+      // Trigger auto-resize dopo inserimento testo
+      input.style.height = '34px';
+      input.style.height = Math.min(input.scrollHeight, 200) + 'px';
       input.focus();
       addLog('STT: "' + text.slice(0, 80) + '"', 'event');
     } else {
@@ -1100,10 +1192,11 @@ async function sendCommand() {
   }
 }
 
-// Auto-resize textarea
+// Auto-resize textarea — cresce fino a 50vh come Claude Code
 document.getElementById('cmd-input').addEventListener('input', function() {
   this.style.height = '34px';
-  this.style.height = Math.min(this.scrollHeight, 89) + 'px'; /* 89 = Fibonacci */
+  var maxH = Math.min(window.innerHeight * 0.5, 400);
+  this.style.height = Math.min(this.scrollHeight, maxH) + 'px';
 });
 
 // ── ORGANIC SCROLL GLOW — on inner scrollable blocks (code, msg-body) ──

@@ -488,13 +488,14 @@ import { css } from './tokens.css.js';
 import { dashboardPage } from './layout.html.js';
 import { ptiUtilsJs } from './pti-utils.js.js';
 import { aosJs } from './aos-rytmo.js.js';
+import { terminalJs } from './terminal.js.js';
 import { stateJs } from './state.js.js';
 import { graphJs } from './graph-view.js.js';
 import { depthLabPage } from './depth-lab.html.js';
 
 // --- HTML Dashboard (composed from tissues) ---
 function dashboardHTML(): string {
-  const js = ptiUtilsJs + '\n' + aosJs + '\n' + stateJs + '\n' + graphJs;
+  const js = ptiUtilsJs + '\n' + aosJs + '\n' + terminalJs + '\n' + stateJs + '\n' + graphJs;
   return dashboardPage({ css, js });
 }
 
