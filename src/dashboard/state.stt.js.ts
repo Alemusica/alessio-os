@@ -10,6 +10,9 @@ var speechActive = false;
 var sttFinal = '';
 var sttInterim = '';
 var sttRestarts = 0;
+var sttDelivered = false;
+var sttForceTimer = null;
+var sttLastResult = 0;
 
 function sttCreateRecognizer() {
   var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -23,12 +26,17 @@ function sttCreateRecognizer() {
 
   rec.onstart = function() {
     speechActive = true;
+    sttLastResult = Date.now();
     btn.classList.add('recording');
     btn.textContent = 'Stop';
     prompt.innerHTML = '<span style="color:var(--accent)">&#9679;</span> Ascolto...';
+    // Force restart every 30s — prevents Chrome long-session degradation
+    clearTimeout(sttForceTimer);
+    sttForceTimer = setTimeout(sttForceRestart, 30000);
   };
 
   rec.onresult = function(event) {
+    sttLastResult = Date.now();
     sttInterim = '';
     for (var i = event.resultIndex; i < event.results.length; i++) {
       if (event.results[i].isFinal) {
@@ -37,22 +45,22 @@ function sttCreateRecognizer() {
         sttInterim += event.results[i][0].transcript;
       }
     }
+    // Backup to localStorage — survives any edge case
+    try { localStorage.setItem('stt-backup', sttFinal + sttInterim); } catch(x) {}
     var preview = sttFinal + sttInterim;
     if (preview) {
-      // Show TAIL of preview — for long recordings the start is stale
       var tail = preview.length > 120 ? '...' + esc(preview).slice(-117) : esc(preview);
       prompt.innerHTML = '<span style="color:var(--accent)">&#9679;</span> ' + tail;
     }
   };
 
   rec.onend = function() {
+    clearTimeout(sttForceTimer);
     if (speechActive) {
-      // Promuovi interim a final PRIMA del restart
       sttFinal += sttInterim;
       sttInterim = '';
       sttRestarts++;
-      // Same-object restart — Chrome handles this better than new instances.
-      // Fresh instance only as fallback (with delay) when same-object fails.
+      // Same-object restart primary, new instance fallback with delay
       try {
         speechRec.start();
       } catch(e) {
@@ -62,7 +70,6 @@ function sttCreateRecognizer() {
             speechRec = sttCreateRecognizer();
             speechRec.start();
           } catch(e2) {
-            addLog('STT restart fallito (#' + sttRestarts + '): ' + e2, 'error');
             sttDeliverResult();
           }
         }, 300);
@@ -73,24 +80,31 @@ function sttCreateRecognizer() {
   };
 
   rec.onerror = function(event) {
-    // Fatal errors: stop auto-restart, deliver what we have
     var fatal = event.error === 'audio-capture' ||
                 event.error === 'not-allowed' ||
                 event.error === 'service-not-allowed';
     if (fatal) {
       speechActive = false;
-      addLog('STT errore fatale: ' + event.error, 'error');
-    }
-    // Non-fatal (no-speech, aborted, network): onend will auto-restart
-    if (event.error !== 'aborted' && event.error !== 'no-speech') {
-      addLog('STT errore: ' + event.error, 'error');
     }
   };
 
   return rec;
 }
 
+// Force restart — prevents Chrome silent degradation on long sessions
+function sttForceRestart() {
+  if (!speechActive || !speechRec) return;
+  sttFinal += sttInterim;
+  sttInterim = '';
+  try { speechRec.stop(); } catch(e) {}
+  // onend will handle the restart
+}
+
 function sttDeliverResult() {
+  if (sttDelivered) return;
+  sttDelivered = true;
+  clearTimeout(sttForceTimer);
+
   var btn = document.getElementById('mic-btn');
   var prompt = document.getElementById('dz-prompt');
   speechActive = false;
@@ -99,12 +113,19 @@ function sttDeliverResult() {
   prompt.textContent = '| Drop OCR/STT';
 
   var text = (sttFinal + sttInterim).trim();
+  // Check localStorage backup — use whichever is longer
+  try {
+    var backup = (localStorage.getItem('stt-backup') || '').trim();
+    if (backup.length > text.length) text = backup;
+    localStorage.removeItem('stt-backup');
+  } catch(x) {}
+
   if (text) {
     var input = document.querySelector('.cmd-input');
     input.value = text;
     resizeInput(input);
     input.focus();
-    addLog('STT (' + sttRestarts + ' restarts): "' + text.slice(0, 80) + '..."', 'event');
+    addLog('STT (' + sttRestarts + ' restart, ' + text.length + ' chars)', 'event');
   } else {
     addLog('STT: nessun testo riconosciuto', 'event');
   }
@@ -113,7 +134,10 @@ function sttDeliverResult() {
 function toggleMic() {
   if (speechActive && speechRec) {
     speechActive = false;
-    speechRec.stop();
+    clearTimeout(sttForceTimer);
+    try { speechRec.stop(); } catch(e) {}
+    // Safety: deliver after 500ms if onend doesn't fire
+    setTimeout(function() { sttDeliverResult(); }, 500);
     return;
   }
 
@@ -126,8 +150,11 @@ function toggleMic() {
   sttFinal = '';
   sttInterim = '';
   sttRestarts = 0;
+  sttDelivered = false;
+  sttLastResult = Date.now();
+  try { localStorage.removeItem('stt-backup'); } catch(x) {}
   speechRec = sttCreateRecognizer();
-  addLog('STT avviato (Web Speech API)', 'event');
+  addLog('STT avviato', 'event');
   speechRec.start();
 }
 
