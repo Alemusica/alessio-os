@@ -44,13 +44,13 @@ export const css = `
     --row: var(--s4);      /* 34px — altezza atomica universale */
     --gutter-v: var(--s2);  /* 13px — padding verticale container */
     --gutter-h: var(--s5);  /* 55px — padding orizzontale container */
-    /* Font scale: 8→13→21→34 (Fibonacci puro), intermedi come medie geometriche */
+    /* Font scale: Fibonacci puro — 8, 13, 21, 34 */
     --fs-base: 13px;
     --fs-2xs: 8px;
-    --fs-xs: 10px;
-    --fs-sm: 11px;
+    --fs-xs: 8px;
+    --fs-sm: 13px;
     --fs-body: 13px;
-    --fs-lg: 18px;
+    --fs-lg: 21px;
     --fs-xl: 21px;
     --fs-2xl: 34px;
     --tracking: -0.01em;
@@ -1391,7 +1391,7 @@ export const css = `
     border-bottom: 1px solid var(--border);
     font-family: var(--font); font-size: var(--fs-sm);
     background: transparent; color: var(--text); height: var(--row); max-height: 50vh;
-    line-height: 1.4; transition: border-color 0.2s, height 0.15s ease;
+    line-height: 1.4; transition: border-color 0.2s;
     overflow-y: auto;
   }
   .cmd-input:focus { outline: none; border-bottom-color: var(--accent); }
