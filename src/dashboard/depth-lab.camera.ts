@@ -39,6 +39,13 @@ export function depthLabCameraJS(): string {
   // Matches CSS: perspective: 1400px, perspective-origin: 50% 45%
   var PD = 1400;
 
+  // ── PERSPECTIVE SCALE — molecola ──
+  // Proiezione prospettica: scala = PD / (PD - relZ).
+  // Quando relZ >= PD (item dietro/sulla camera), ritorna 1 (nessun scale).
+  function pScale(relZ) {
+    return relZ >= PD ? 1 : PD / (PD - relZ);
+  }
+
   // ── MOUSE TRACKING ──
   var mouseX = window.innerWidth / 2;
   var mouseY = window.innerHeight / 2;
@@ -77,7 +84,7 @@ export function depthLabCameraJS(): string {
       var bp = itemBasePos[i];
       var relZ = bp.z + camZ;
       if (relZ >= PD) { itemAura[i] = 0; continue; }
-      var scale = PD / (PD - relZ);
+      var scale = pScale(relZ);
       // Proietta posizione VISIVA (base + offset attrazione)
       // Formula CSS: perspOrigin + (sceneOrigin + itemPos - perspOrigin) * scale
       // Per X: perspX = sceneOriginX → semplifica a perspX + visualX * scale
@@ -159,7 +166,7 @@ export function depthLabCameraJS(): string {
       if (maxAuraIdx >= 0) {
         var hbp = itemBasePos[maxAuraIdx];
         var hRelZ = hbp.z + camZ;
-        var hScale = (hRelZ >= PD) ? 1 : PD / (PD - hRelZ);
+        var hScale = pScale(hRelZ);
         var hScreenX = perspX + (hbp.x + itemOffset[maxAuraIdx].x + camX) * hScale;
         var hScreenY = perspY + (sceneGapY + hbp.y + itemOffset[maxAuraIdx].y + camY) * hScale;
         var hHalfW = itemHalfW[maxAuraIdx] * hScale;
@@ -233,7 +240,7 @@ export function depthLabCameraJS(): string {
 
       // De-proietta mouse nel piano Z di QUESTO item (usa camera = ciò che utente vede)
       var thisRelZ = bp.z + camZ;
-      var thisScale = (thisRelZ >= PD) ? 1 : PD / (PD - thisRelZ);
+      var thisScale = pScale(thisRelZ);
       var sceneMouseX = (mouseX - perspX) / thisScale - camX;
       var sceneMouseY = (mouseY - perspY) / thisScale - sceneGapY - camY;
 

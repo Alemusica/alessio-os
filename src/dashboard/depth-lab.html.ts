@@ -253,13 +253,18 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   var profile = {};
   for (var k in DEFAULTS) profile[k] = DEFAULTS[k];
 
-  // ── MUTABLE VARS (synced from profile by applyProfile) ──
-  var fStop = profile.fStop;
-  var maxBlur = profile.maxBlur;
-  var PULL_FACTOR = profile.pullFactor;
-  var MAX_RIPPLE = profile.maxRipple;
-  var HIT_RADIUS = profile.hitRadius;
-  var MAX_OFFSET = profile.maxOffset;
+  // ── MUTABLE VARS (synced from profile by syncMutables) ──
+  var fStop, maxBlur, PULL_FACTOR, MAX_RIPPLE, HIT_RADIUS, MAX_OFFSET;
+
+  function syncMutables() {
+    fStop = profile.fStop;
+    maxBlur = profile.maxBlur;
+    PULL_FACTOR = profile.pullFactor;
+    MAX_RIPPLE = profile.maxRipple;
+    HIT_RADIUS = profile.hitRadius;
+    MAX_OFFSET = profile.maxOffset;
+  }
+  syncMutables();
 
   // ── PERSISTENCE ──
   var _saveTimer = null;
@@ -283,13 +288,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   }
 
   function applyProfile() {
-    // Sync mutable vars
-    fStop = profile.fStop;
-    maxBlur = profile.maxBlur;
-    PULL_FACTOR = profile.pullFactor;
-    MAX_RIPPLE = profile.maxRipple;
-    HIT_RADIUS = profile.hitRadius;
-    MAX_OFFSET = profile.maxOffset;
+    syncMutables();
     // Re-layout + update UI
     if (typeof layoutFns !== 'undefined' && layoutFns[currentLayout]) {
       layoutFns[currentLayout]();
@@ -302,12 +301,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
 
   // Load saved profile at boot
   loadProfile();
-  fStop = profile.fStop;
-  maxBlur = profile.maxBlur;
-  PULL_FACTOR = profile.pullFactor;
-  MAX_RIPPLE = profile.maxRipple;
-  HIT_RADIUS = profile.hitRadius;
-  MAX_OFFSET = profile.maxOffset;
+  syncMutables();
 
   // ── PER-ITEM ORGANIC STATE ──
   var itemBasePos = [];

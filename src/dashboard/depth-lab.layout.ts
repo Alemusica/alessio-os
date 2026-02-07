@@ -33,6 +33,14 @@ export function depthLabLayoutJS(): string {
     return { core: 0, music: -gap, business: -gap*2, social: -gap*3, interface: -gap*4, other: -gap*5 };
   }
 
+  // ── SPIRALE — molecola ──
+  // Fibonacci spiral: angolo aureo × k, raggio × √k.
+  function spirale(k, raggio) {
+    var a = k * GOLDEN_ANGLE;
+    var r = raggio * Math.sqrt(k + 0.5);
+    return { x: Math.cos(a) * r, y: Math.sin(a) * r };
+  }
+
   // ── SHARED LAYOUT APPLICATOR ──
   function applyLayout(entries) {
     for (var k = 0; k < entries.length; k++) {
@@ -56,12 +64,11 @@ export function depthLabLayoutJS(): string {
     var entries = [];
     for (var k = 0; k < sorted.length; k++) {
       var entry = sorted[k];
-      var angle = k * GOLDEN_ANGLE;
-      var radius = profile.fibonacciRadius * Math.sqrt(k + 0.5);
+      var pos = spirale(k, profile.fibonacciRadius);
       entries.push({
         i: entry.i,
-        x: Math.cos(angle) * radius,
-        y: Math.sin(angle) * radius,
+        x: pos.x,
+        y: pos.y,
         z: -k * profile.fibonacciZDepth,
         fs: Math.min(profile.fontMax, profile.fontScaleBase + Math.log(1 + entry.d.count) * profile.fontScaleLog),
         fw: k < 5 ? '500' : '400'
@@ -91,12 +98,11 @@ export function depthLabLayoutJS(): string {
 
       for (var k = 0; k < group.length; k++) {
         var entry = group[k];
-        var angle = k * GOLDEN_ANGLE;
-        var radius = profile.clusterRadius * Math.sqrt(k + 0.5);
+        var pos = spirale(k, profile.clusterRadius);
         entries.push({
           i: entry.i,
-          x: Math.cos(angle) * radius,
-          y: Math.sin(angle) * radius,
+          x: pos.x,
+          y: pos.y,
           z: baseZ - k * profile.clusterZDepth,
           fs: Math.min(profile.fontMax - 4, profile.fontScaleBase + Math.log(1 + entry.d.count) * (profile.fontScaleLog * 0.8)),
           fw: k === 0 ? '500' : '400'
