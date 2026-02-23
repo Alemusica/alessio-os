@@ -11,6 +11,15 @@ function renderProjectsList() {
   msgs.style.display = 'none';
   el.style.display = 'grid';
 
+  // Outreach shortcut card (prepended if actions due)
+  var outreachCard = '';
+  if (typeof outreachActionsDue !== 'undefined' && outreachActionsDue.length > 0) {
+    outreachCard = '<div class="session-card" onclick="switchView(\\'outreach\\')" style="border-left:3px solid var(--warning);grid-column:1/-1">' +
+      '<div class="sc-id">FLUTUR Outreach</div>' +
+      '<div class="sc-meta"><span>' + outreachActionsDue.length + ' azioni oggi</span><span>vai &rarr;</span></div>' +
+    '</div>';
+  }
+
   renderList('sessions-grid', S.projects, function(p) {
     var name = p.project || 'home';
     var count = p.msg_count || 0;
@@ -20,6 +29,11 @@ function renderProjectsList() {
       '<div class="sc-meta"><span>' + count + ' msg</span><span>' + sessions.length + ' sessioni</span></div>' +
     '</div>';
   }, 'Nessun progetto. Esegui npm run auto-save');
+
+  // Prepend outreach card
+  if (outreachCard) {
+    el.innerHTML = outreachCard + el.innerHTML;
+  }
 }
 
 // ── RENDER SIDEBAR PROJECTS ──

@@ -10,6 +10,7 @@ export const stateCoreJs = `
 // ── STATE ──
 const S = {
   view: 'chat',
+  mode: 'projects',    // 'projects' | 'flutur'
   project: null,       // null = show all projects
   session: null,
   projects: [],        // from SSE
@@ -227,6 +228,15 @@ document.addEventListener('keydown', function(e) {
   var tag = document.activeElement && document.activeElement.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
   e.preventDefault();
+  // FIS mode: cycle FIS sub-views
+  if (S.mode === 'flutur') {
+    var fisIdx = FIS_VIEW_ORDER.indexOf(fisView);
+    if (fisIdx === -1) fisIdx = 0;
+    if (e.key === 'ArrowRight') fisIdx = (fisIdx + 1) % FIS_VIEW_ORDER.length;
+    else fisIdx = (fisIdx - 1 + FIS_VIEW_ORDER.length) % FIS_VIEW_ORDER.length;
+    switchFisView(FIS_VIEW_ORDER[fisIdx]);
+    return;
+  }
   var idx = VIEW_ORDER.indexOf(S.view);
   if (idx === -1) idx = 0;
   if (e.key === 'ArrowRight') idx = (idx + 1) % VIEW_ORDER.length;

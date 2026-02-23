@@ -65,7 +65,30 @@ export function depthLabCameraJS(): string {
   var itemAura = [];
   for (var _a = 0; _a < n; _a++) itemAura.push(0);
 
+  // ── SCENE BOUNDING BOX (per boundary spring) ──
+  var sceneBBox = null;
+  function computeSceneBBox() {
+    assert(n > 0, 'computeSceneBBox: no items');
+    var minX = Infinity, maxX = -Infinity;
+    var minY = Infinity, maxY = -Infinity;
+    var minZ = Infinity, maxZ = -Infinity;
+    for (var i = 0; i < n; i++) {
+      var p = itemBasePos[i];
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+      if (p.z < minZ) minZ = p.z;
+      if (p.z > maxZ) maxZ = p.z;
+    }
+    sceneBBox = { minX: minX, maxX: maxX, minY: minY, maxY: maxY, minZ: minZ, maxZ: maxZ };
+    return sceneBBox;
+  }
+
   function updateAttractions() {
+    // Skip organic attraction during focus mode
+    if (focusState !== 'idle') return;
+
     // Perspective origin: 50% 45%. Scene origin: left:50% top:50%.
     // Gap Y = 50% - 45% = 5% — items non a Z=0 vengono proiettati dal vanishing point
     // che è 5% sopra il centro scena. La proiezione deve tenerne conto.
@@ -298,6 +321,33 @@ export function depthLabCameraJS(): string {
   // ── ANIMATION LOOP ──
   var animating = false;
   function animate() {
+    // ── BOUNDARY SPRING ──
+    if (sceneBBox && focusState === 'idle') {
+      var pad = profile.boundaryPadding;
+      var k = profile.boundarySpring;
+      var rangeX = (sceneBBox.maxX - sceneBBox.minX) * pad;
+      var rangeY = (sceneBBox.maxY - sceneBBox.minY) * pad;
+      var rangeZ = (sceneBBox.maxZ - sceneBBox.minZ) * pad;
+
+      // Camera baseTarget is inverted: positive baseTarget.x = view shifts right = items appear left
+      // So boundaries on baseTarget correspond to INVERTED item bounds
+      var bMinX = -(sceneBBox.maxX + rangeX);
+      var bMaxX = -(sceneBBox.minX - rangeX);
+      var bMinY = -(sceneBBox.maxY + rangeY);
+      var bMaxY = -(sceneBBox.minY - rangeY);
+      // Z: positive camera.z = zoomed in, negative = zoomed out
+      // Allow zooming past items in both directions
+      var bMinZ = sceneBBox.minZ - rangeZ;
+      var bMaxZ = -sceneBBox.minZ + rangeZ;
+
+      if (baseTarget.x < bMinX) baseTarget.x += (bMinX - baseTarget.x) * k;
+      if (baseTarget.x > bMaxX) baseTarget.x += (bMaxX - baseTarget.x) * k;
+      if (baseTarget.y < bMinY) baseTarget.y += (bMinY - baseTarget.y) * k;
+      if (baseTarget.y > bMaxY) baseTarget.y += (bMaxY - baseTarget.y) * k;
+      if (baseTarget.z < bMinZ) baseTarget.z += (bMinZ - baseTarget.z) * k;
+      if (baseTarget.z > bMaxZ) baseTarget.z += (bMaxZ - baseTarget.z) * k;
+    }
+
     // Camera: target = baseTarget + hoverOffset (parallax)
     target.x = baseTarget.x + hoverOffset.x;
     target.y = baseTarget.y + hoverOffset.y;
@@ -321,7 +371,7 @@ export function depthLabCameraJS(): string {
 
     // ── PER-ITEM ORGANIC OFFSETS ──
     var offsetMoving = false;
-    if (!layoutTransitioning) {
+    if (!layoutTransitioning && focusState === 'idle') {
       var hovIdx = hoveredItem ? parseInt(hoveredItem.dataset.index) : -1;
       var hovBase = hovIdx >= 0 ? itemBasePos[hovIdx] : null;
 
@@ -353,6 +403,7 @@ export function depthLabCameraJS(): string {
     }
 
     updateDoF();
+    updateBackgroundGradient();
 
     document.getElementById('hud-z').textContent = Math.round(-camera.z);
     document.getElementById('hud-focal').textContent = Math.round(focalDistance);
@@ -378,6 +429,22 @@ export function depthLabCameraJS(): string {
   // Gerarchia: evidenziato VINCE → sempre nitido, blur 0.
   // DoF classico per tutto il resto, piano focale segue l'evidenziato.
   function updateDoF() {
+    // Focus mode: hard isolation — focused item sharp, others heavily blurred
+    if ((focusState === 'focused' || focusState === 'entering') && focusedIdx >= 0) {
+      for (var i = 0; i < items.length; i++) {
+        if (i === focusedIdx) {
+          items[i].style.filter = 'none';
+          items[i].style.opacity = '1';
+          items[i].classList.add('in-focus');
+        } else {
+          items[i].style.filter = 'blur(' + (maxBlur * 0.8).toFixed(1) + 'px)';
+          items[i].style.opacity = '0.12';
+          items[i].classList.remove('in-focus');
+        }
+      }
+      return;
+    }
+
     var focalZ = focalDistance;
 
     for (var i = 0; i < items.length; i++) {
@@ -393,9 +460,22 @@ export function depthLabCameraJS(): string {
       var relativeZ = itemZ + camera.z;
       var distance = Math.abs(relativeZ - focalZ);
       var blur = Math.min(distance / (fStop * 30), maxBlur);
-      var opacity = Math.max(0.15, 1 - blur / (maxBlur * 1.5));
 
-      items[i].style.filter = blur > 0.3 ? 'blur(' + blur.toFixed(1) + 'px)' : 'none';
+      // Atmospheric fog: distance from eye determines desaturation + opacity falloff
+      var eyeDistance = PD - relativeZ;
+      var fogRange = profile.fogEnd - profile.fogStart;
+      var fogFactor = fogRange > 0 ? Math.max(0, Math.min(1, (eyeDistance - profile.fogStart) / fogRange)) : 0;
+
+      var saturate = 1 - fogFactor * profile.fogDesaturation;
+      var baseOpacity = Math.max(0.15, 1 - blur / (maxBlur * 1.5));
+      var opacity = baseOpacity * (1 - fogFactor * profile.fogOpacity);
+      opacity = Math.max(0.15, opacity);
+
+      // Combined filter: blur + saturate
+      var filterParts = [];
+      if (blur > 0.3) filterParts.push('blur(' + blur.toFixed(1) + 'px)');
+      if (saturate < 0.98) filterParts.push('saturate(' + saturate.toFixed(2) + ')');
+      items[i].style.filter = filterParts.length > 0 ? filterParts.join(' ') : 'none';
       items[i].style.opacity = opacity.toFixed(2);
 
       if (blur < 1) {
@@ -404,5 +484,22 @@ export function depthLabCameraJS(): string {
         items[i].classList.remove('in-focus');
       }
     }
+  }
+
+  // ── ATMOSPHERIC BACKGROUND ──
+  // Background gradient is a DERIVATO of camera state.
+  // Center shifts with camera parallax (8% max displacement).
+  // Spread responds to camera.z: zoom-in tightens, zoom-out expands.
+  // 50/45 = perspective-origin; 8 = parallax sensitivity (% of viewport);
+  // 70 = neutral spread; 0.01 = z-to-spread ratio; 40/100 = spread clamp.
+  var bgEl = document.getElementById('d3-bg');
+  function updateBackgroundGradient() {
+    if (!bgEl) return;
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var cx = 50 + (camera.x / vw) * 8;
+    var cy = 45 + (camera.y / vh) * 8;
+    var spread = Math.max(40, Math.min(100, 70 + camera.z * 0.01));
+    bgEl.style.background = 'radial-gradient(ellipse ' + spread + '% ' + spread + '% at ' + cx.toFixed(1) + '% ' + cy.toFixed(1) + '%, var(--bg) 0%, var(--bg-far) 100%)';
   }`;
 }

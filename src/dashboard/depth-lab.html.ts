@@ -15,6 +15,9 @@ import { depthLabCSS } from './depth-lab.css';
 import { depthLabLayoutJS } from './depth-lab.layout';
 import { depthLabCameraJS } from './depth-lab.camera';
 import { depthLabInteractionJS } from './depth-lab.interaction';
+import { depthLabFocusJS } from './depth-lab.focus';
+import { depthLabBreathJS } from './depth-lab.breath';
+import { depthLabChatJS } from './depth-lab.chat';
 
 export function depthLabPage(projects: Array<{project: string; msg_count: number; session_ids?: string[]}>): string {
   // Prepara dati per il client — posizionamento avviene in JS
@@ -42,6 +45,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
 </head>
 <body>
 <div class="d3-viewport" id="viewport">
+  <div id="d3-bg"></div>
   <div class="d3-focal-line"></div>
   <div class="d3-crosshair"></div>
   <div class="d3-scene" id="scene">
@@ -172,6 +176,24 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   </div>
 
   <div class="d3-params-section">
+    <div class="d3-params-title" onclick="toggleSection(this)">▸ Boundaries</div>
+    <div class="d3-params-body">
+      <div class="d3-param-row"><label>spring</label><input type="range" data-key="boundarySpring" min="0.01" max="0.20" step="0.01"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>padding</label><input type="range" data-key="boundaryPadding" min="0.1" max="2.0" step="0.1"><span class="d3-param-val"></span></div>
+    </div>
+  </div>
+
+  <div class="d3-params-section">
+    <div class="d3-params-title" onclick="toggleSection(this)">▸ Fog</div>
+    <div class="d3-params-body">
+      <div class="d3-param-row"><label>fogStart</label><input type="range" data-key="fogStart" min="200" max="2000" step="10"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>fogEnd</label><input type="range" data-key="fogEnd" min="1000" max="6000" step="100"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>desaturation</label><input type="range" data-key="fogDesaturation" min="0" max="1" step="0.05"><span class="d3-param-val"></span></div>
+      <div class="d3-param-row"><label>opacity</label><input type="range" data-key="fogOpacity" min="0" max="1" step="0.05"><span class="d3-param-val"></span></div>
+    </div>
+  </div>
+
+  <div class="d3-params-section">
     <div class="d3-params-title" onclick="toggleSection(this)">▸ Font</div>
     <div class="d3-params-body">
       <div class="d3-param-row"><label>base</label><input type="range" data-key="fontScaleBase" min="8" max="20" step="0.5"><span class="d3-param-val"></span></div>
@@ -194,8 +216,27 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
 
 <a href="/" class="d3-back">&larr; dashboard</a>
 
+<!-- ── CHAT INPUT (2D fixed — unica eccezione al 3D) ── -->
+<div class="d3-chat-input-wrap" id="chat-input-wrap">
+  <input type="text" class="d3-chat-input" id="chat-input" placeholder="ask about this project..." autocomplete="off" spellcheck="false">
+</div>
+
+<!-- ── API KEY OVERLAY ── -->
+<div class="d3-api-overlay" id="api-key-overlay">
+  <div class="d3-api-box">
+    <label>ANTHROPIC API KEY</label>
+    <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off">
+    <button id="api-key-save">Save</button>
+  </div>
+</div>
+
 <script>
 (function() {
+  // ── ASSERT — guardia PTI (non-throwing) ──
+  function assert(cond, msg) {
+    if (!cond) console.error('[assert]', msg);
+  }
+
   var scene = document.getElementById('scene');
   var viewport = document.getElementById('viewport');
   var items = Array.from(document.querySelectorAll('.d3-item'));
@@ -241,6 +282,14 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
     // Zoom
     zoomSpeed: 2,
     smartZoomPull: 0.003,
+    // Boundaries
+    boundarySpring: 0.06,
+    boundaryPadding: 0.5,
+    // Fog (atmospheric perspective)
+    fogStart: 840,
+    fogEnd: 3500,
+    fogDesaturation: 0.4,
+    fogOpacity: 0.5,
     // Font
     fontScaleBase: 12,
     fontScaleLog: 2.5,
@@ -329,6 +378,15 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   // ── TESSUTO: Interazione ──
   ${depthLabInteractionJS()}
 
+  // ── TESSUTO: Focus Mode 3D ──
+  ${depthLabFocusJS()}
+
+  // ── TESSUTO: Breathing Text ──
+  ${depthLabBreathJS()}
+
+  // ── TESSUTO: LLM Chat ──
+  ${depthLabChatJS()}
+
   // ── INIT ──
   var savedLayout = profile.layout || 'alpha';
   if (profile.theme && profile.theme !== 'default') {
@@ -338,6 +396,7 @@ export function depthLabPage(projects: Array<{project: string; msg_count: number
   updateApertureUI();
   updatePullUI();
   updateDoF();
+  updateBackgroundGradient();
   updateParamsUI();
 })();
 </script>

@@ -52,6 +52,7 @@ export function depthLabLayoutJS(): string {
       el.querySelector('.d3-name').style.fontSize = e.fs.toFixed(1) + 'px';
       el.querySelector('.d3-name').style.fontWeight = e.fw || '400';
     }
+    if (typeof computeSceneBBox === 'function') computeSceneBBox();
   }
 
   // ═══════════════════════════════════════════

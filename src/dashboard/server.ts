@@ -497,6 +497,8 @@ import { stateChatJs } from './state.chat.js.js';
 import { stateTimelineJs } from './state.timeline.js.js';
 import { stateGithubJs } from './state.github.js.js';
 import { stateAgentsJs } from './state.agents.js.js';
+import { stateOutreachJs } from './state.outreach.js.js';
+import { stateFisJs } from './state.fis.js.js';
 import { graphJs } from './graph-view.js.js';
 import { depthLabPage } from './depth-lab.html.js';
 
@@ -505,7 +507,7 @@ function dashboardHTML(): string {
   const js = ptiUtilsJs + '\n' + aosJs + '\n' + terminalJs + '\n'
     + stateCoreJs + '\n' + stateNavJs + '\n' + stateRenderJs + '\n'
     + stateSttJs + '\n' + stateChatJs + '\n' + stateTimelineJs + '\n'
-    + stateGithubJs + '\n' + stateAgentsJs + '\n' + graphJs;
+    + stateGithubJs + '\n' + stateAgentsJs + '\n' + stateOutreachJs + '\n' + stateFisJs + '\n' + graphJs;
   return dashboardPage({ css, js });
 }
 
@@ -613,6 +615,18 @@ async function handleAssignAgent(req: IncomingMessage, res: ServerResponse): Pro
 }
 
 // --- Route table: path → { method → handler } ---
+// --- Cross-namespace query: social/analytics (outreach data lives there) ---
+async function outreachQuery(sql: string): Promise<Record<string, unknown>[]> {
+  const auth = Buffer.from(`${process.env.SURREAL_USER ?? 'root'}:${process.env.SURREAL_PASS ?? 'root'}`).toString('base64');
+  const r = await fetch('http://127.0.0.1:8000/sql', {
+    method: 'POST', body: sql,
+    headers: { 'Content-Type': 'text/plain', Accept: 'application/json',
+      Authorization: `Basic ${auth}`, 'surreal-ns': 'social', 'surreal-db': 'analytics' },
+  });
+  const rows = await r.json() as Array<{ result: unknown }>;
+  return Array.isArray(rows[0]?.result) ? rows[0].result as Record<string, unknown>[] : [];
+}
+
 const ROUTE_TABLE: Record<string, Record<string, RouteHandler>> = {
   '/depth-lab':                   { GET: async (_, res) => {
     try {
@@ -660,6 +674,94 @@ const ROUTE_TABLE: Record<string, Record<string, RouteHandler>> = {
   '/api/paradigm':               { GET: async (_, res, q) => { const id = requireParam(q, 'id', res); if (!id) return; try { const p = await getParadigm(id); if (!p) { jsonResponse(res, { error: 'Not found' }, 404); return; } jsonResponse(res, p); } catch (err) { jsonResponse(res, { error: String(err) }, 500); } }, POST: api(async (_, req) => { const data = JSON.parse(await readBody(req)); return { paradigm_id: await createParadigm(data) }; }, 400), DELETE: async (_, res, q) => { const id = requireParam(q, 'id', res); if (!id) return; try { await deleteParadigm(id); jsonResponse(res, { ok: true }); } catch (err) { jsonResponse(res, { error: String(err) }, 400); } } },
   '/api/paradigm/assign':        { POST: api(async (_, req) => { await assignParadigm(JSON.parse(await readBody(req))); return { ok: true }; }, 400) },
   '/api/paradigm/assignment':    { GET: async (_, res, q) => { const type = requireParam(q, 'type', res); if (!type) return; const id = requireParam(q, 'id', res); if (!id) return; try { jsonResponse(res, await getAssignment(type, id) ?? { paradigm_id: null }); } catch (err) { jsonResponse(res, { error: String(err) }, 500); } }, DELETE: async (_, res, q) => { const type = requireParam(q, 'type', res); if (!type) return; const id = requireParam(q, 'id', res); if (!id) return; try { await removeAssignment(type, id); jsonResponse(res, { ok: true }); } catch (err) { jsonResponse(res, { error: String(err) }, 400); } } },
+
+  // --- Outreach (cross-namespace: social/analytics) ---
+  // oq() = query helper for social/analytics namespace
+  '/api/outreach/pipeline':      { GET: api(async () => {
+    const [snaps, replies] = await Promise.all([
+      outreachQuery('SELECT * FROM outreach_snapshot ORDER BY date DESC LIMIT 1'),
+      outreachQuery('SELECT * FROM outreach_reply ORDER BY received_at DESC'),
+    ]);
+    const snap = snaps[0] as Record<string, unknown> | undefined;
+    const stats = snap ? {
+      sent: snap.total_sent ?? 0, delivered: snap.delivered ?? 0,
+      replied: snap.human_replies ?? 0, bounced: snap.bounced ?? 0,
+      responseRate: snap.response_rate ?? 0, followUpDue: 0,
+    } : null;
+    const replyList = (replies as Record<string, unknown>[]).map(r => ({
+      venue: r.venue_name ?? r.from_domain, type: r.reply_type,
+      received_at: r.received_at, preview: (r.subject as string ?? '').slice(0, 120),
+      from_domain: r.from_domain,
+    }));
+    return { stats, replies: replyList, insights: [], byVideo: [], byCountry: [] };
+  }) },
+
+  '/api/outreach/actions':       { GET: api(async () => {
+    const [due, upcoming] = await Promise.all([
+      outreachQuery('RETURN fn::actions_due_today()'),
+      outreachQuery('RETURN fn::actions_upcoming()'),
+    ]);
+    return { due, upcoming };
+  }) },
+
+  '/api/outreach/actions/complete': { POST: api(async (_, req) => {
+    const { id } = JSON.parse(await readBody(req));
+    if (!id) throw new Error('id required');
+    await outreachQuery(`UPDATE type::thing("outreach_action", "${id}") SET status = "sent", completed_at = time::now()`);
+    return { ok: true };
+  }, 400) },
+
+  '/api/outreach/actions/skip': { POST: api(async (_, req) => {
+    const { id } = JSON.parse(await readBody(req));
+    if (!id) throw new Error('id required');
+    await outreachQuery(`UPDATE type::thing("outreach_action", "${id}") SET status = "skipped", completed_at = time::now()`);
+    return { ok: true };
+  }, 400) },
+
+  '/api/outreach/threads':       { GET: api(async () => {
+    const [emails, replies] = await Promise.all([
+      outreachQuery('SELECT venue_name, to_address, gmail_thread_id, sent_at, email_type FROM email ORDER BY sent_at DESC'),
+      outreachQuery('SELECT venue, reply_type, received_at, gmail_thread_id FROM outreach_reply ORDER BY received_at DESC'),
+    ]);
+    return { emails, replies };
+  }) },
+
+  // --- FIS: Flutur Intelligence System (cross-namespace: social/analytics) ---
+  '/api/fis/availability':       { GET: api(async () => {
+    const dates = await outreachQuery('SELECT * FROM availability ORDER BY date');
+    return { dates };
+  }) },
+
+  '/api/fis/briefing':           { GET: api(async () => {
+    const [replies, actions, sigma2] = await Promise.all([
+      outreachQuery('SELECT * FROM outreach_reply WHERE received_at > time::now() - 7d ORDER BY received_at DESC'),
+      outreachQuery('RETURN fn::actions_due_today()'),
+      outreachQuery("SELECT content FROM memory_link WHERE sigma = 'σ₂' ORDER BY created_at DESC LIMIT 10"),
+    ]);
+    return { replies, actions, sigma2 };
+  }) },
+
+  '/api/fis/gmail':              { GET: api(async () => {
+    const threads = await outreachQuery(`
+      SELECT venue_name, from_email, reply_type, received_at, preview
+      FROM outreach_reply ORDER BY received_at DESC LIMIT 20
+    `);
+    return { threads };
+  }) },
+
+  '/api/fis/command':            { POST: api(async (_, req) => {
+    const { text } = JSON.parse(await readBody(req));
+    if (!text) return { error: 'No text provided' };
+    try {
+      const result = execSync(
+        `npx tsx scripts/fis-handle.ts ${JSON.stringify(text)}`,
+        { cwd: '/Users/alessioivoycazzaniga/Projects/social-cli-mcp', timeout: 60000, encoding: 'utf-8' },
+      );
+      return JSON.parse(result);
+    } catch (err: any) {
+      return { error: err.stderr || err.message || String(err) };
+    }
+  }) },
 };
 
 // --- HTTP dispatcher (cx ≈ 5, was 190) ---

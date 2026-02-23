@@ -334,6 +334,26 @@ export const css = `
   .view { display: none; flex: 1; overflow: hidden; flex-direction: column; }
   .view.active { display: flex; }
 
+  /* ── FIS VIEWS ── */
+  #fis-container { flex-direction: column; }
+  .fis-view { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+  .fis-view.active { display: flex; }
+
+  /* FIS sidebar active state */
+  #flutur-nav .nav-item.active { color: var(--accent); font-weight: 500; border-left: 2px solid var(--accent); }
+
+  /* Availability calendar grid */
+  .avail-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .avail-day {
+    padding: var(--s0); border-radius: 2px; text-align: center;
+    font-size: var(--fs-2xs); font-family: var(--mono); cursor: default;
+    background: var(--surface);
+  }
+  .avail-day.committed { background: var(--accent); color: white; }
+  .avail-day.free { background: var(--green-bg); color: var(--green); }
+  .avail-day.hold { background: var(--amber-bg); color: var(--amber); }
+  .avail-day.booked { background: var(--rose-bg); color: var(--rose); }
+
   .view-scroll { flex: 1; overflow-y: auto; padding: var(--gutter-h); position: relative; }
   .view-scroll::-webkit-scrollbar { width: 4px; }
   .view-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }

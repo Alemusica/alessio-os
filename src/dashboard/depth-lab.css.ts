@@ -13,6 +13,7 @@ export function depthLabCSS(): string {
 
   :root {
     --bg: #FAF8F5;
+    --bg-far: #E8E4DE;
     --text: #2C2926;
     --text-secondary: #6B6560;
     --dim: #9E9891;
@@ -41,6 +42,19 @@ export function depthLabCSS(): string {
     perspective-origin: 50% 45%;
     overflow: hidden;
     position: relative;
+  }
+
+  /* ── ATMOSPHERIC BACKGROUND ──
+     Radial gradient that responds to camera position.
+     Center and spread are DERIVATI of camera state (updated in rAF).
+     Static fallback uses perspective-origin (50% 45%). */
+  #d3-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at 50% 45%, var(--bg) 0%, var(--bg-far) 100%);
+    transition: background 0.4s ease;
   }
 
   .d3-scene {
@@ -166,23 +180,23 @@ export function depthLabCSS(): string {
 
   /* ── THEMES ── */
   .night {
-    --bg: #1C1A17; --text: #D8D2CA;
+    --bg: #1C1A17; --bg-far: #0F0E0C; --text: #D8D2CA;
     --text-secondary: #9E978E; --dim: #6B655D; --accent: #C4A478;
   }
   .primavera {
-    --bg: #F7FAF5; --text: #2A332A;
+    --bg: #F7FAF5; --bg-far: #E5EDE2; --text: #2A332A;
     --text-secondary: #5E6E58; --dim: #8E9E88; --accent: #C8887A;
   }
   .estate {
-    --bg: #F8F6F0; --text: #2C3038;
+    --bg: #F8F6F0; --bg-far: #E6E4DE; --text: #2C3038;
     --text-secondary: #5C6670; --dim: #8C96A0; --accent: #3E8EA0;
   }
   .ellenica {
-    --bg: #F5F6FA; --text: #1E2440;
+    --bg: #F5F6FA; --bg-far: #E2E4EE; --text: #1E2440;
     --text-secondary: #5A6080; --dim: #8890A8; --accent: #2E5E9E;
   }
   .benessere {
-    --bg: #F5F8F6; --text: #2A3430;
+    --bg: #F5F8F6; --bg-far: #E2EBE5; --text: #2A3430;
     --text-secondary: #5A6E64; --dim: #8AA098; --accent: #5E9E88;
   }
 
@@ -386,5 +400,205 @@ export function depthLabCSS(): string {
   .d3-params::-webkit-scrollbar-thumb { background: var(--dim); border-radius: 2px; }
   .night .d3-params {
     box-shadow: 0 2px 8px rgba(0,0,0,0.20);
-  }`;
+  }
+
+  /* ══════════════════════════════════════
+     FOCUS MODE 3D
+     ══════════════════════════════════════ */
+
+  /* Focus active: dim controls, focal line prominent */
+  .d3-focus-active .d3-controls,
+  .d3-focus-active .d3-title { opacity: 0.2; pointer-events: none; transition: opacity 0.6s ease; }
+  .d3-focus-active .d3-aperture { opacity: 0; pointer-events: none; transition: opacity 0.4s ease; }
+  .d3-focus-active .d3-focal-line { opacity: 0.25 !important; }
+  .d3-focus-active .d3-hud { opacity: 0.4; transition: opacity 0.4s ease; }
+
+  /* ── 3D TEXT PANEL (inside #scene) ── */
+  .d3-focus-text {
+    position: absolute;
+    transform-style: preserve-3d;
+    max-width: 340px;
+    opacity: 0;
+    transition: opacity 0.6s cubic-bezier(0.16,1,0.3,1);
+    pointer-events: none;
+  }
+  .d3-focus-text.visible { opacity: 1; }
+  .d3-focus-name {
+    font-family: var(--font);
+    font-size: 21px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    margin-bottom: 5px;
+    line-height: 1.2;
+  }
+  .d3-focus-cat {
+    font-family: var(--mono);
+    font-size: 8px;
+    color: var(--dim);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 13px;
+  }
+  .d3-focus-desc {
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 300;
+    line-height: 1.618;
+    color: var(--text-secondary);
+    max-width: 300px;
+  }
+
+  /* ── 3D MESSAGES CONTAINER ── */
+  .d3-focus-messages {
+    position: absolute;
+    transform-style: preserve-3d;
+    max-width: 340px;
+  }
+
+  /* ── BREATHING TEXT ── */
+  .d3-breath-word {
+    display: inline;
+    opacity: 0;
+    transform: translateY(3px);
+    transition: opacity 0.4s cubic-bezier(0.16,1,0.3,1),
+                transform 0.4s cubic-bezier(0.16,1,0.3,1);
+    /* transition-delay set inline by JS */
+  }
+  .d3-breath-word.revealed {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ── CHAT MESSAGES (3D in scene) ── */
+  .d3-chat-msg {
+    position: relative;
+    transform-style: preserve-3d;
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.618;
+    color: var(--text);
+    max-width: 300px;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    margin-bottom: 5px;
+    word-wrap: break-word;
+  }
+  .d3-chat-msg.visible { opacity: 1; }
+  .d3-chat-msg.user {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+    max-width: 233px;
+    padding-left: 8px;
+    border-left: 1px solid var(--dim);
+    opacity: 0.6;
+  }
+  .d3-chat-msg.user.visible { opacity: 0.6; }
+  .d3-chat-msg.assistant {
+    font-weight: 300;
+    color: var(--text-secondary);
+  }
+  .d3-chat-msg.error { color: #c03030; font-family: var(--mono); font-size: 10px; }
+
+  /* ── CHAT INPUT (2D fixed — only non-3D element) ── */
+  .d3-chat-input-wrap {
+    position: fixed;
+    bottom: 55px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+  }
+  .d3-chat-input-wrap.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .d3-chat-input {
+    background: transparent;
+    border: 1px solid var(--dim);
+    border-radius: 2px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 8px 13px;
+    width: 340px;
+    outline: none;
+    letter-spacing: 0.02em;
+    transition: border-color 0.2s;
+  }
+  .d3-chat-input:focus { border-color: var(--accent); }
+  .d3-chat-input::placeholder { color: var(--dim); opacity: 0.5; }
+  .d3-chat-input:disabled { opacity: 0.4; }
+
+  /* ── API KEY OVERLAY ── */
+  .d3-api-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .d3-api-overlay.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .d3-api-box {
+    background: var(--bg);
+    border: 1px solid var(--dim);
+    border-radius: 4px;
+    padding: 21px;
+    max-width: 340px;
+    width: 90%;
+  }
+  .d3-api-box label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .d3-api-box input {
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--dim);
+    border-radius: 2px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 8px;
+    outline: none;
+    margin-bottom: 13px;
+    box-sizing: border-box;
+  }
+  .d3-api-box input:focus { border-color: var(--accent); }
+  .d3-api-box button {
+    background: none;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 5px 13px;
+    cursor: pointer;
+    border-radius: 2px;
+    letter-spacing: 0.04em;
+    transition: all 0.15s;
+  }
+  .d3-api-box button:hover {
+    background: var(--accent);
+    color: var(--bg);
+  }
+  .night .d3-api-overlay { background: rgba(0,0,0,0.6); }
+  .night .d3-api-box { box-shadow: 0 4px 24px rgba(0,0,0,0.3); }`;
 }

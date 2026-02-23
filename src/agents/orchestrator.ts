@@ -478,6 +478,7 @@ export class Orchestrator {
     // Evita confusione code-catalog/phonon-kb vs SurrealDB
     const cwd = resolveProjectCwd(project);
     const args: string[] = [
+      '--model', 'claude-opus-4-6',        // Opus 4.6 con thinking
       '--mcp-config', '{"mcpServers":{}}', // nessun MCP server
       '--strict-mcp-config',      // ignora config globale
       '--allowedTools', 'Read,Write,Edit,Bash,Glob,Grep,WebSearch,WebFetch',  // abilita tool essenziali + ricerca web

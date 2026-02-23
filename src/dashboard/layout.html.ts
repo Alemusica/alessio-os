@@ -132,6 +132,16 @@ ${opts.css}
         <a class="file-link" href="vscode://file/Users/alessioivoycazzaniga/alessio-os/src/dashboard/server.ts">dashboard.ts</a>
       </div>
     </div>
+    <div class="nav-divider"></div>
+    <div class="nav-section">
+      <div class="nav-label">Intelligence</div>
+      <div id="flutur-nav">
+        <button class="nav-item" data-fis="fis-outreach" onclick="enterFlutur('fis-outreach')">Outreach</button>
+        <button class="nav-item" data-fis="fis-availability" onclick="enterFlutur('fis-availability')">Calendar</button>
+        <button class="nav-item" data-fis="fis-briefing" onclick="enterFlutur('fis-briefing')">Briefing</button>
+        <button class="nav-item" data-fis="fis-gmail" onclick="enterFlutur('fis-gmail')">Gmail</button>
+      </div>
+    </div>
   </aside>
 
   <!-- MAIN CONTENT -->
@@ -189,19 +199,6 @@ ${opts.css}
         <div id="messages-area" class="messages-list" style="display:none;"></div>
       </div>
 
-      <!-- DROP ZONE + COMMAND INPUT -->
-      <div class="drop-zone" id="drop-zone">
-        <div class="cmd-area">
-          <textarea class="cmd-input" id="cmd-input" rows="1" placeholder="Scrivi un comando o task..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendCommand();}"></textarea>
-          <button class="btn-send" onclick="sendCommand()">Invia</button>
-        </div>
-        <span class="dz-prompt" id="dz-prompt">| Drop OCR/STT</span>
-        <input type="file" id="file-input" multiple accept="image/*,audio/*" hidden>
-        <div class="dz-actions">
-          <button class="btn btn-ghost" onclick="document.getElementById('file-input').click()">File</button>
-          <button class="btn btn-rec" id="mic-btn" onclick="toggleMic()">Rec</button>
-        </div>
-      </div>
     </div>
 
     <!-- AGENTS VIEW -->
@@ -337,6 +334,54 @@ ${opts.css}
           <button class="btn-close" onclick="closeInspector()">&times;</button>
         </div>
         <div class="gi-body" id="gi-body"></div>
+      </div>
+    </div>
+
+    <!-- FLUTUR INTELLIGENCE SYSTEM -->
+    <div id="fis-container" style="display:none;flex:1;overflow:hidden;flex-direction:column;">
+      <div class="breadcrumb">
+        <span class="bc-link" onclick="exitFlutur()">home</span>
+        <span class="bc-sep">/</span>
+        <span>Flutur Intelligence</span>
+        <span class="view-tabs" id="fis-tabs">
+          <span class="view-tab active" data-fis="fis-outreach" onclick="switchFisView('fis-outreach')">Outreach</span>
+          <span class="vt-sep">|</span>
+          <span class="view-tab" data-fis="fis-availability" onclick="switchFisView('fis-availability')">Calendar</span>
+          <span class="vt-sep">|</span>
+          <span class="view-tab" data-fis="fis-briefing" onclick="switchFisView('fis-briefing')">Briefing</span>
+          <span class="vt-sep">|</span>
+          <span class="view-tab" data-fis="fis-gmail" onclick="switchFisView('fis-gmail')">Gmail</span>
+        </span>
+      </div>
+
+      <div id="fis-outreach-view" class="fis-view active">
+        <div class="view-scroll" id="outreach-content" style="padding:var(--s3);display:flex;flex-direction:column;gap:var(--s3);"></div>
+      </div>
+
+      <div id="fis-availability-view" class="fis-view">
+        <div class="view-scroll" id="availability-content"></div>
+      </div>
+
+      <div id="fis-briefing-view" class="fis-view">
+        <div class="view-scroll" id="briefing-content"></div>
+      </div>
+
+      <div id="fis-gmail-view" class="fis-view">
+        <div class="view-scroll" id="gmail-content"></div>
+      </div>
+    </div>
+
+    <!-- PERSISTENT PROMPT BAR -->
+    <div class="drop-zone" id="drop-zone">
+      <div class="cmd-area">
+        <textarea class="cmd-input" id="cmd-input" rows="1" placeholder="Scrivi un comando o task..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendCommand();}"></textarea>
+        <button class="btn-send" onclick="sendCommand()">Invia</button>
+      </div>
+      <span class="dz-prompt" id="dz-prompt">| Drop OCR/STT</span>
+      <input type="file" id="file-input" multiple accept="image/*,audio/*" hidden>
+      <div class="dz-actions">
+        <button class="btn btn-ghost" onclick="document.getElementById('file-input').click()">File</button>
+        <button class="btn btn-rec" id="mic-btn" onclick="toggleMic()">Rec</button>
       </div>
     </div>
 

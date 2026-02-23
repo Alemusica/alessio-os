@@ -16,6 +16,7 @@ export function depthLabInteractionJS(): string {
   // ── SCROLL → Z + SMART ZOOM ──
   viewport.addEventListener('wheel', function(e) {
     e.preventDefault();
+    if (focusState !== 'idle') return;
     if (e.ctrlKey) {
       fStop = Math.max(1.0, Math.min(16, fStop + e.deltaY * 0.02));
       profile.fStop = fStop;
@@ -41,6 +42,7 @@ export function depthLabInteractionJS(): string {
   var dragStart = { x: 0, y: 0 };
 
   viewport.addEventListener('mousedown', function(e) {
+    if (focusState !== 'idle') return;
     if (e.target.closest('.d3-controls') || e.target.closest('.d3-back') || e.target.closest('.d3-aperture') || e.target.closest('.d3-params')) return;
     dragging = true;
     dragStart.x = e.clientX;
@@ -254,9 +256,16 @@ export function depthLabInteractionJS(): string {
     });
 
     item.addEventListener('click', function(e) {
-      if (Math.abs(e.clientX - dragStart.x) > 5) return;
+      if (focusState === 'idle' && Math.abs(e.clientX - dragStart.x) > 5) return;
       hideCtx();
-      showCtx(e.clientX + 10, e.clientY, item.dataset.project);
+      var idx = parseInt(item.dataset.index);
+      if (focusState === 'focused' && focusedIdx === idx) return;
+      if (focusState === 'focused') {
+        exitFocus();
+        (function(ci) { setTimeout(function() { enterFocus(ci); }, 1400); })(idx);
+      } else if (focusState === 'idle') {
+        enterFocus(idx);
+      }
     });
   });
 
@@ -287,6 +296,16 @@ export function depthLabInteractionJS(): string {
 
   document.addEventListener('click', function(e) {
     if (!e.target.closest('.d3-ctx')) hideCtx();
+    // Exit focus on click outside items/chat/controls
+    if (focusState === 'focused' &&
+        !e.target.closest('.d3-item') &&
+        !e.target.closest('.d3-chat-input-wrap') &&
+        !e.target.closest('.d3-focus-text') &&
+        !e.target.closest('.d3-focus-messages') &&
+        !e.target.closest('.d3-api-overlay') &&
+        !e.target.closest('.d3-ctx')) {
+      exitFocus();
+    }
   });
 
   viewport.addEventListener('contextmenu', function(e) {
@@ -295,7 +314,18 @@ export function depthLabInteractionJS(): string {
 
   // ── KEYBOARD ──
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') { hideCtx(); return; }
+    // Skip shortcuts when typing in inputs
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      if (e.key === 'Escape') {
+        e.target.blur();
+        if (focusState === 'focused') exitFocus();
+      }
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (focusState === 'focused') { exitFocus(); return; }
+      hideCtx(); return;
+    }
     if (e.key === 'p' || e.key === 'P') { window.toggleParamsPanel(); return; }
     var step = e.shiftKey ? 300 : 100;
     if (e.key === 'ArrowUp') { baseTarget.z += step; e.preventDefault(); }
